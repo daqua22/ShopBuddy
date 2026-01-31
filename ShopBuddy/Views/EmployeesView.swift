@@ -30,7 +30,6 @@ struct EmployeesView: View {
     }
     
     var body: some View {
-        NavigationStack {
             ScrollView {
                 VStack(spacing: DesignSystem.Spacing.grid_3) {
                     // Search bar
@@ -68,7 +67,6 @@ struct EmployeesView: View {
             .sheet(item: $editingEmployee) { employee in
                 AddEditEmployeeView(employee: employee)
             }
-        }
     }
     
     private var searchBar: some View {
@@ -194,13 +192,16 @@ struct AddEditEmployeeView: View {
     }
     
     var body: some View {
-        NavigationStack {
             Form {
                 Section("Basic Information") {
                     TextField("Name", text: $name)
                     
+                    #if os(iOS)
                     TextField("4-Digit PIN", text: $pin)
                         .keyboardType(.numberPad)
+                    #else
+                    TextField("4-Digit PIN", text: $pin)
+                    #endif
                     
                     Picker("Role", selection: $role) {
                         ForEach(EmployeeRole.allCases, id: \.self) { role in
@@ -210,8 +211,12 @@ struct AddEditEmployeeView: View {
                 }
                 
                 Section("Compensation") {
+                    #if os(iOS)
                     TextField("Hourly Wage (optional)", text: $hourlyWage)
                         .keyboardType(.decimalPad)
+                    #else
+                    TextField("Hourly Wage (optional)", text: $hourlyWage)
+                    #endif
                 }
                 
                 if employee != nil {
@@ -238,7 +243,9 @@ struct AddEditEmployeeView: View {
             .scrollContentBackground(.hidden)
             .background(DesignSystem.Colors.background)
             .navigationTitle(employee == nil ? "Add Employee" : "Edit Employee")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -253,7 +260,6 @@ struct AddEditEmployeeView: View {
                     .disabled(!isValid)
                 }
             }
-        }
     }
     
     private var isValid: Bool {
@@ -265,7 +271,7 @@ struct AddEditEmployeeView: View {
         guard pin.isValidPIN else {
             errorMessage = "PIN must be exactly 4 digits"
             showError = true
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
             return
         }
         
@@ -291,12 +297,12 @@ struct AddEditEmployeeView: View {
         
         do {
             try modelContext.save()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+            DesignSystem.HapticFeedback.trigger(.success)
             dismiss()
         } catch {
             errorMessage = "Failed to save employee: \(error.localizedDescription)"
             showError = true
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
         }
     }
     
@@ -307,12 +313,12 @@ struct AddEditEmployeeView: View {
         
         do {
             try modelContext.save()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+            DesignSystem.HapticFeedback.trigger(.success)
             dismiss()
         } catch {
             errorMessage = "Failed to delete employee: \(error.localizedDescription)"
             showError = true
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
         }
     }
 }

@@ -1,413 +1,239 @@
-//
-//  InventoryView.swift
-//  ShopBuddy
-//
-//  Created by Dan on 1/29/26.
-//
-
 import SwiftUI
 import SwiftData
 
 struct InventoryView: View {
-    
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \InventoryCategory.name) private var categories: [InventoryCategory]
     
-    @Query(sort: \InventoryItem.name) private var allItems: [InventoryItem]
-    @Query private var settings: [AppSettings]
+    @State private var showingAddCategory = false
+    @State private var newCategoryName = ""
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if categories.isEmpty {
+                    ContentUnavailableView("No Categories", systemImage: "folder.badge.plus", description: Text("Managers can add categories like 'Weekly' or 'Monthly'"))
+                }
+                
+                ForEach(categories) { category in
+                    NavigationLink(destination: LocationListView(category: category)) {
+                        HStack {
+                            Image(systemName: "folder.fill")
+                                .foregroundColor(.accentColor)
+                            Text(category.name)
+                                .font(.headline)
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
+                .onDelete(perform: deleteCategory)
+            }
+            .navigationTitle("Inventory")
+            .toolbar {
+                if coordinator.isManager {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { showingAddCategory = true } label: { Image(systemName: "plus") }
+                    }
+                    ToolbarItem(placement: .topBarLeading) { EditButton() }
+                }
+            }
+            .alert("New Category", isPresented: $showingAddCategory) {
+                TextField("Category Name (e.g. Weekly)", text: $newCategoryName)
+                Button("Cancel", role: .cancel) { newCategoryName = "" }
+                Button("Create") {
+                    let cat = InventoryCategory(name: newCategoryName)
+                    modelContext.insert(cat)
+                    newCategoryName = ""
+                }
+            }
+        }
+    }
     
-    @State private var selectedCategory: InventoryCategoryType? = nil
-    @State private var searchText = ""
+    private func deleteCategory(at offsets: IndexSet) {
+        for index in offsets {
+            modelContext.delete(categories[index])
+        }
+    }
+}
+
+// MARK: - Location List
+struct LocationListView: View {
+    var category: InventoryCategory
+    @Environment(AppCoordinator.self) private var coordinator
+    @Environment(\.modelContext) private var modelContext
+    @State private var showingAddLocation = false
+    @State private var newLocationName = ""
+
+    var body: some View {
+        List {
+            if category.locations.isEmpty {
+                ContentUnavailableView("No Locations", systemImage: "mappin.and.ellipse", description: Text("Add locations like 'Bar Fridge' to this category"))
+            }
+            
+            ForEach(category.locations.sorted(by: { $0.name < $1.name })) { location in
+                NavigationLink(destination: ItemListView(location: location)) {
+                    HStack {
+                        Image(systemName: "mappin.and.ellipse")
+                            .foregroundColor(.secondary)
+                        Text(location.name)
+                    }
+                }
+            }
+            .onDelete(perform: deleteLocation)
+        }
+        .navigationTitle(category.name)
+        .toolbar {
+            if coordinator.isManager {
+                Button { showingAddLocation = true } label: { Image(systemName: "plus") }
+            }
+        }
+        .alert("New Location", isPresented: $showingAddLocation) {
+            TextField("Location Name", text: $newLocationName)
+            Button("Cancel", role: .cancel) { newLocationName = "" }
+            Button("Add") {
+                let loc = InventoryLocation(name: newLocationName)
+                loc.category = category
+                category.locations.append(loc)
+                newLocationName = ""
+            }
+        }
+    }
+    
+    private func deleteLocation(at offsets: IndexSet) {
+        for index in offsets {
+            let sorted = category.locations.sorted(by: { $0.name < $1.name })
+            modelContext.delete(sorted[index])
+        }
+    }
+}
+
+// MARK: - Item List
+struct ItemListView: View {
+    var location: InventoryLocation
+    @Environment(AppCoordinator.self) private var coordinator
+    @Environment(\.modelContext) private var modelContext
     @State private var showingAddItem = false
-    @State private var editingItem: InventoryItem?
+
+    var body: some View {
+        List {
+            ForEach(location.items.sorted(by: { $0.name < $1.name })) { item in
+                InventoryItemRow(item: item)
+            }
+            .onDelete(perform: deleteItem)
+        }
+        .navigationTitle(location.name)
+        .toolbar {
+            if coordinator.isManager {
+                Button { showingAddItem = true } label: { Image(systemName: "plus") }
+            }
+        }
+        .sheet(isPresented: $showingAddItem) {
+            AddInventoryItemView(location: location)
+        }
+    }
+    
+    private func deleteItem(at offsets: IndexSet) {
+        for index in offsets {
+            let sorted = location.items.sorted(by: { $0.name < $1.name })
+            modelContext.delete(sorted[index])
+        }
+    }
+}
+
+// MARK: - Inventory Item Row (With Smart Steppers)
+struct InventoryItemRow: View {
+    @Bindable var item: InventoryItem
+    @Environment(AppCoordinator.self) private var coordinator
+    @Query private var settings: [AppSettings]
     
     private var canEdit: Bool {
         coordinator.isManager || (settings.first?.allowEmployeeInventoryEdit ?? false)
     }
-    
-    private var filteredItems: [InventoryItem] {
-        var items = allItems
-        
-        // Filter by category
-        if let category = selectedCategory {
-            items = items.filter { $0.category == category }
-        }
-        
-        // Filter by search text
-        if !searchText.isEmpty {
-            items = items.filter {
-                $0.name.localizedCaseInsensitiveContains(searchText) ||
-                $0.subcategory.localizedCaseInsensitiveContains(searchText)
-            }
-        }
-        
-        return items
-    }
-    
-    private var groupedItems: [(category: InventoryCategoryType, items: [InventoryItem])] {
-        let grouped = Dictionary(grouping: filteredItems, by: { $0.category })
-        return grouped
-            .sorted { $0.key.sortOrder < $1.key.sortOrder }
-            .map { (category: $0.key, items: $0.value.sorted { $0.name < $1.name }) }
-    }
-    
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: DesignSystem.Spacing.grid_3) {
-                    // Search bar
-                    searchBar
-                    
-                    // Category filter
-                    categoryFilter
-                    
-                    // Inventory items
-                    if filteredItems.isEmpty {
-                        EmptyStateView(
-                            icon: "shippingbox",
-                            title: "No Inventory Items",
-                            message: searchText.isEmpty ? "Add your first inventory item to get started" : "No items match your search",
-                            actionTitle: canEdit && searchText.isEmpty ? "Add Item" : nil,
-                            action: canEdit && searchText.isEmpty ? { showingAddItem = true } : nil
-                        )
-                    } else {
-                        inventoryList
-                    }
-                }
-                .padding(DesignSystem.Spacing.grid_2)
-            }
-            .background(DesignSystem.Colors.background.ignoresSafeArea())
-            .navigationTitle("Inventory")
-            .toolbar {
-                if canEdit {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showingAddItem = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                    }
-                }
-            }
-            .sheet(isPresented: $showingAddItem) {
-                AddEditInventoryItemView()
-            }
-            .sheet(item: $editingItem) { item in
-                AddEditInventoryItemView(item: item)
-            }
-        }
-    }
-    
-    private var searchBar: some View {
-        HStack {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(DesignSystem.Colors.secondary)
-            
-            TextField("Search inventory...", text: $searchText)
-                .foregroundColor(DesignSystem.Colors.primary)
-            
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(DesignSystem.Colors.secondary)
-                }
-            }
-        }
-        .padding(DesignSystem.Spacing.grid_2)
-        .glassCard()
-    }
-    
-    private var categoryFilter: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DesignSystem.Spacing.grid_1) {
-                // All button
-                CategoryFilterButton(
-                    title: "All",
-                    isSelected: selectedCategory == nil
-                ) {
-                    selectedCategory = nil
-                }
-                
-                // Category buttons
-                ForEach(InventoryCategoryType.allCases, id: \.self) { category in
-                    CategoryFilterButton(
-                        title: category.rawValue,
-                        isSelected: selectedCategory == category
-                    ) {
-                        selectedCategory = category
-                    }
-                }
-            }
-            .padding(.horizontal, DesignSystem.Spacing.grid_2)
-        }
-    }
-    
-    private var inventoryList: some View {
-        VStack(spacing: DesignSystem.Spacing.grid_3) {
-            ForEach(groupedItems, id: \.category) { group in
-                VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_2) {
-                    if selectedCategory == nil {
-                        Text(group.category.rawValue)
-                            .font(DesignSystem.Typography.title3)
-                            .foregroundColor(DesignSystem.Colors.primary)
-                            .padding(.horizontal, DesignSystem.Spacing.grid_2)
-                    }
-                    
-                    // Group by subcategory
-                    let subcategoryGroups = Dictionary(grouping: group.items, by: { $0.subcategory })
-                        .sorted { $0.key < $1.key }
-                    
-                    ForEach(subcategoryGroups, id: \.key) { subcategory, items in
-                        VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_1) {
-                            Text(subcategory)
-                                .font(DesignSystem.Typography.headline)
-                                .foregroundColor(DesignSystem.Colors.secondary)
-                                .padding(.horizontal, DesignSystem.Spacing.grid_2)
-                            
-                            ForEach(items) { item in
-                                InventoryItemRow(item: item, canEdit: canEdit) {
-                                    editingItem = item
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
-// MARK: - Category Filter Button
-struct CategoryFilterButton: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-    
     var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(DesignSystem.Typography.callout)
-                .foregroundColor(isSelected ? .white : DesignSystem.Colors.primary)
-                .padding(.horizontal, DesignSystem.Spacing.grid_2)
-                .padding(.vertical, DesignSystem.Spacing.grid_1)
-                .background(isSelected ? DesignSystem.Colors.accent : DesignSystem.Colors.surface)
-                .cornerRadius(DesignSystem.CornerRadius.medium)
-        }
-    }
-}
-
-// MARK: - Inventory Item Row
-struct InventoryItemRow: View {
-    let item: InventoryItem
-    let canEdit: Bool
-    let onTap: () -> Void
-    
-    var body: some View {
-        Button {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.name)
+                    .font(.headline)
+                Text(item.unitType)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
             if canEdit {
-                onTap()
-            }
-        } label: {
-            HStack(spacing: DesignSystem.Spacing.grid_2) {
-                // Stock indicator
-                Circle()
-                    .fill(Color.stockColor(percentage: item.stockPercentage))
-                    .frame(width: 12, height: 12)
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.name)
-                        .font(DesignSystem.Typography.body)
-                        .foregroundColor(DesignSystem.Colors.primary)
+                HStack(spacing: 12) {
+                    Button { updateLevel(by: -1) } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.red)
+                    }
                     
-                    HStack(spacing: DesignSystem.Spacing.grid_1) {
-                        Text("\(item.stockLevel, specifier: "%.1f") \(item.unitType)")
-                            .font(DesignSystem.Typography.caption)
-                            .foregroundColor(DesignSystem.Colors.secondary)
-                        
-                        if item.isBelowPar {
-                            Text("• Below PAR")
-                                .font(DesignSystem.Typography.caption)
-                                .foregroundColor(DesignSystem.Colors.warning)
-                        }
+                    Text(formatValue(item.stockLevel))
+                        .font(.system(.body, design: .monospaced))
+                        .frame(width: 40)
+                    
+                    Button { updateLevel(by: 1) } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.green)
                     }
                 }
-                
-                Spacer()
-                
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("PAR: \(item.parLevel, specifier: "%.1f")")
-                        .font(DesignSystem.Typography.caption)
-                        .foregroundColor(DesignSystem.Colors.secondary)
-                    
-                    if let lastRestocked = item.lastRestocked {
-                        Text("Restocked \(lastRestocked.shortDateString())")
-                            .font(DesignSystem.Typography.caption)
-                            .foregroundColor(DesignSystem.Colors.tertiary)
-                    }
-                }
-                
-                if canEdit {
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundColor(DesignSystem.Colors.tertiary)
-                }
+                .buttonStyle(.borderless)
+            } else {
+                Text(formatValue(item.stockLevel))
+                    .font(.headline)
             }
-            .padding(DesignSystem.Spacing.grid_2)
         }
-        .glassCard()
+        .padding(.vertical, 4)
+    }
+    
+    private func updateLevel(by direction: Double) {
+        // Step check: if stock or par has decimals, step by 0.1
+        let isDecimal = item.parLevel.truncatingRemainder(dividingBy: 1) != 0 ||
+                        item.stockLevel.truncatingRemainder(dividingBy: 1) != 0
+        
+        let step = isDecimal ? 0.1 : 1.0
+        item.stockLevel = max(0, item.stockLevel + (direction * step))
+    }
+    
+    private func formatValue(_ val: Double) -> String {
+        val.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", val) : String(format: "%.1f", val)
     }
 }
 
-// MARK: - Add/Edit Inventory Item View
-struct AddEditInventoryItemView: View {
-    
+// MARK: - Add Item View
+struct AddInventoryItemView: View {
+    var location: InventoryLocation
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     
-    let item: InventoryItem?
-    
     @State private var name = ""
-    @State private var category: InventoryCategoryType = .weekly
-    @State private var subcategory = ""
-    @State private var stockLevel = ""
-    @State private var parLevel = ""
-    @State private var unitType = ""
-    @State private var notes = ""
-    
-    init(item: InventoryItem? = nil) {
-        self.item = item
-        if let item = item {
-            _name = State(initialValue: item.name)
-            _category = State(initialValue: item.category)
-            _subcategory = State(initialValue: item.subcategory)
-            _stockLevel = State(initialValue: String(format: "%.1f", item.stockLevel))
-            _parLevel = State(initialValue: String(format: "%.1f", item.parLevel))
-            _unitType = State(initialValue: item.unitType)
-            _notes = State(initialValue: item.notes ?? "")
-        }
-    }
-    
+    @State private var par = ""
+    @State private var unit = ""
+
     var body: some View {
         NavigationStack {
             Form {
-                Section("Basic Information") {
-                    TextField("Item Name", text: $name)
-                    
-                    Picker("Category", selection: $category) {
-                        ForEach(InventoryCategoryType.allCases, id: \.self) { cat in
-                            Text(cat.rawValue).tag(cat)
-                        }
-                    }
-                    
-                    TextField("Location (e.g., Bar fridge)", text: $subcategory)
-                }
-                
-                Section("Stock Levels") {
-                    TextField("Current Stock", text: $stockLevel)
-                        .keyboardType(.decimalPad)
-                    
-                    TextField("PAR Level", text: $parLevel)
-                        .keyboardType(.decimalPad)
-                    
-                    TextField("Unit Type (e.g., kg, L, units)", text: $unitType)
-                }
-                
-                Section("Notes") {
-                    TextField("Notes (optional)", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
-                }
-                
-                if item != nil {
-                    Section {
-                        Button(role: .destructive) {
-                            deleteItem()
-                        } label: {
-                            Label("Delete Item", systemImage: "trash")
-                        }
-                    }
-                }
+                TextField("Item Name", text: $name)
+                TextField("PAR Level", text: $par).keyboardType(.decimalPad)
+                TextField("Unit (e.g. Bottles, kg)", text: $unit)
             }
-            .scrollContentBackground(.hidden)
-            .background(DesignSystem.Colors.background)
-            .navigationTitle(item == nil ? "Add Item" : "Edit Item")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Add Item")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-                
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        saveItem()
+                        let newItem = InventoryItem(name: name, stockLevel: Double(par) ?? 0, parLevel: Double(par) ?? 0, unitType: unit)
+                        newItem.location = location
+                        location.items.append(newItem)
+                        dismiss()
                     }
-                    .disabled(!isValid)
+                    .disabled(name.isEmpty || par.isEmpty)
                 }
             }
-        }
-    }
-    
-    private var isValid: Bool {
-        !name.isEmpty &&
-        !subcategory.isEmpty &&
-        !unitType.isEmpty &&
-        Double(stockLevel) != nil &&
-        Double(parLevel) != nil
-    }
-    
-    private func saveItem() {
-        guard let stock = Double(stockLevel),
-              let par = Double(parLevel) else { return }
-        
-        if let item = item {
-            // Update existing item
-            item.name = name
-            item.category = category
-            item.subcategory = subcategory
-            item.stockLevel = stock
-            item.parLevel = par
-            item.unitType = unitType
-            item.notes = notes.isEmpty ? nil : notes
-            item.lastRestocked = Date()
-        } else {
-            // Create new item
-            let newItem = InventoryItem(
-                name: name,
-                category: category,
-                subcategory: subcategory,
-                stockLevel: stock,
-                parLevel: par,
-                unitType: unitType,
-                notes: notes.isEmpty ? nil : notes
-            )
-            modelContext.insert(newItem)
-        }
-        
-        do {
-            try modelContext.save()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
-            dismiss()
-        } catch {
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
-            print("Failed to save item: \(error)")
-        }
-    }
-    
-    private func deleteItem() {
-        guard let item = item else { return }
-        
-        modelContext.delete(item)
-        
-        do {
-            try modelContext.save()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
-            dismiss()
-        } catch {
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
-            print("Failed to delete item: \(error)")
         }
     }
 }

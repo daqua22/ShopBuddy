@@ -51,23 +51,37 @@ enum DesignSystem {
         static let caption = Font.system(.caption, design: .rounded)
     }
     
+    // MARK: - Haptic Types
+    enum HapticType {
+        case success
+        case error
+        case warning
+        case light
+        case medium
+        case heavy
+        case selection
+    }
+    
     // MARK: - Haptic System
     enum HapticFeedback {
-        static func success() {
+        static func trigger(_ type: HapticType) {
             #if canImport(UIKit)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            #endif
-        }
-        
-        static func error() {
-            #if canImport(UIKit)
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-            #endif
-        }
-        
-        static func selection() {
-            #if canImport(UIKit)
-            UISelectionFeedbackGenerator().selectionChanged()
+            switch type {
+            case .success:
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            case .error:
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            case .warning:
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            case .light:
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            case .medium:
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            case .heavy:
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+            case .selection:
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
             #endif
         }
     }
@@ -75,10 +89,13 @@ enum DesignSystem {
     // MARK: - Components
     struct GlassCard<Content: View>: View {
         let content: Content
-        init(@ViewBuilder content: () -> Content) { self.content = content() }
+        
+        init(@ViewBuilder content: () -> Content) {
+            self.content = content()
+        }
+        
         var body: some View {
             content
-                .padding(DesignSystem.Spacing.grid_2)
                 .background(.ultraThinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large))
                 .overlay(
@@ -87,11 +104,12 @@ enum DesignSystem {
                 )
         }
     }
-} // <-- NOW THE ENUM CLOSES HERE
+}
 
-// MARK: - Button Styles (Must be outside for easier usage)
+// MARK: - Button Styles
 struct PrimaryButtonStyle: ButtonStyle {
     var isDestructive: Bool = false
+    
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(DesignSystem.Typography.headline)
@@ -102,7 +120,88 @@ struct PrimaryButtonStyle: ButtonStyle {
             .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
             .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
             .onChange(of: configuration.isPressed) { _, isPressed in
-                if isPressed { DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.light) }
+                if isPressed {
+                    DesignSystem.HapticFeedback.trigger(.light)
+                }
             }
+    }
+}
+
+struct SecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(DesignSystem.Typography.callout)
+            .foregroundColor(DesignSystem.Colors.primary)
+            .padding(.horizontal, DesignSystem.Spacing.grid_2)
+            .padding(.vertical, DesignSystem.Spacing.grid_1)
+            .background(DesignSystem.Colors.surface)
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium)
+                    .stroke(DesignSystem.Colors.glassStroke, lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .onChange(of: configuration.isPressed) { _, isPressed in
+                if isPressed {
+                    DesignSystem.HapticFeedback.trigger(.light)
+                }
+            }
+    }
+}
+
+// MARK: - Empty State View
+struct EmptyStateView: View {
+    let icon: String
+    let title: String
+    let message: String
+    let actionTitle: String?
+    let action: (() -> Void)?
+    
+    init(
+        icon: String,
+        title: String,
+        message: String,
+        actionTitle: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        self.icon = icon
+        self.title = title
+        self.message = message
+        self.actionTitle = actionTitle
+        self.action = action
+    }
+    
+    var body: some View {
+        VStack(spacing: DesignSystem.Spacing.grid_3) {
+            Spacer()
+            
+            Image(systemName: icon)
+                .font(.system(size: 60))
+                .foregroundColor(DesignSystem.Colors.secondary)
+            
+            VStack(spacing: DesignSystem.Spacing.grid_1) {
+                Text(title)
+                    .font(DesignSystem.Typography.title3)
+                    .foregroundColor(DesignSystem.Colors.primary)
+                
+                Text(message)
+                    .font(DesignSystem.Typography.body)
+                    .foregroundColor(DesignSystem.Colors.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            
+            if let actionTitle = actionTitle, let action = action {
+                Button(action: action) {
+                    Text(actionTitle)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .padding(.horizontal, DesignSystem.Spacing.grid_4)
+            }
+            
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .padding(DesignSystem.Spacing.grid_4)
     }
 }

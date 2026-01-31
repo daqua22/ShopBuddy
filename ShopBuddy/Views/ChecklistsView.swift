@@ -35,7 +35,6 @@ struct ChecklistsView: View {
     }
     
     var body: some View {
-        NavigationStack {
             ScrollView {
                 VStack(spacing: DesignSystem.Spacing.grid_3) {
                     if checklists.isEmpty {
@@ -74,7 +73,6 @@ struct ChecklistsView: View {
             .sheet(isPresented: $showingEmployeeSelector) {
                 EmployeeSelectorView(task: selectedTask)
             }
-        }
     }
     
     private var checklistsList: some View {
@@ -101,13 +99,13 @@ struct ChecklistsView: View {
     
     private func resetChecklist(_ checklist: ChecklistTemplate) {
         checklist.resetAllTasks()
-        DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+        DesignSystem.HapticFeedback.trigger(.success)
         
         do {
             try modelContext.save()
         } catch {
             print("Failed to reset checklist: \(error)")
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
         }
     }
 }
@@ -233,7 +231,6 @@ struct ChecklistTaskRow: View {
 
 // MARK: - Employee Selector View
 struct EmployeeSelectorView: View {
-    
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     
@@ -247,7 +244,7 @@ struct EmployeeSelectorView: View {
     }
     
     var body: some View {
-        NavigationStack {
+        NavigationStack { // Added NavigationStack for the sheet's own navigation
             List {
                 if clockedInEmployees.isEmpty {
                     ContentUnavailableView(
@@ -255,6 +252,7 @@ struct EmployeeSelectorView: View {
                         systemImage: "person.slash",
                         description: Text("Employees must be clocked in to complete tasks")
                     )
+                    .listRowBackground(Color.clear)
                 } else {
                     ForEach(clockedInEmployees) { employee in
                         Button {
@@ -278,7 +276,9 @@ struct EmployeeSelectorView: View {
             .scrollContentBackground(.hidden)
             .background(DesignSystem.Colors.background)
             .navigationTitle("Who completed this?")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -286,25 +286,24 @@ struct EmployeeSelectorView: View {
                     }
                 }
             }
-        }
-    }
+        } // Closing for NavigationStack
+    } // Closing for body
     
     private func selectEmployee(_ employee: Employee) {
         guard let task = task else { return }
         
         task.markComplete(by: employee.name)
-        DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+        DesignSystem.HapticFeedback.trigger(.success)
         
         do {
             try modelContext.save()
             dismiss()
         } catch {
             print("Failed to mark task complete: \(error)")
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
         }
     }
 }
-
 // MARK: - Add/Edit Checklist View
 struct AddEditChecklistView: View {
     
@@ -328,7 +327,6 @@ struct AddEditChecklistView: View {
     }
     
     var body: some View {
-        NavigationStack {
             Form {
                 Section("Checklist Information") {
                     TextField("Checklist Title", text: $title)
@@ -370,7 +368,9 @@ struct AddEditChecklistView: View {
             .scrollContentBackground(.hidden)
             .background(DesignSystem.Colors.background)
             .navigationTitle(checklist == nil ? "New Checklist" : "Edit Checklist")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -385,7 +385,6 @@ struct AddEditChecklistView: View {
                     .disabled(!isValid)
                 }
             }
-        }
     }
     
     private var isValid: Bool {
@@ -422,10 +421,10 @@ struct AddEditChecklistView: View {
         
         do {
             try modelContext.save()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+            DesignSystem.HapticFeedback.trigger(.success)
             dismiss()
         } catch {
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
             print("Failed to save checklist: \(error)")
         }
     }
@@ -437,10 +436,10 @@ struct AddEditChecklistView: View {
         
         do {
             try modelContext.save()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+            DesignSystem.HapticFeedback.trigger(.success)
             dismiss()
         } catch {
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
             print("Failed to delete checklist: \(error)")
         }
     }

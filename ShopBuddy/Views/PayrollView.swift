@@ -20,40 +20,38 @@ struct PayrollView: View {
     @State private var selectedPeriod: PayrollPeriod?
     
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: DesignSystem.Spacing.grid_3) {
-                    if payrollPeriods.isEmpty {
-                        EmptyStateView(
-                            icon: "banknote",
-                            title: "No Payroll Periods",
-                            message: "Create your first payroll period to calculate employee compensation",
-                            actionTitle: "Create Payroll",
-                            action: { showingCreatePayroll = true }
-                        )
-                    } else {
-                        payrollPeriodsList
-                    }
-                }
-                .padding(DesignSystem.Spacing.grid_2)
-            }
-            .background(DesignSystem.Colors.background.ignoresSafeArea())
-            .navigationTitle("Payroll")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingCreatePayroll = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
+        ScrollView {
+            VStack(spacing: DesignSystem.Spacing.grid_3) {
+                if payrollPeriods.isEmpty {
+                    EmptyStateView(
+                        icon: "banknote",
+                        title: "No Payroll Periods",
+                        message: "Create your first payroll period to calculate employee compensation",
+                        actionTitle: "Create Payroll",
+                        action: { showingCreatePayroll = true }
+                    )
+                } else {
+                    payrollPeriodsList
                 }
             }
-            .sheet(isPresented: $showingCreatePayroll) {
-                CreatePayrollView()
+            .padding(DesignSystem.Spacing.grid_2)
+        }
+        .background(DesignSystem.Colors.background.ignoresSafeArea())
+        .navigationTitle("Payroll")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingCreatePayroll = true
+                } label: {
+                    Image(systemName: "plus")
+                }
             }
-            .sheet(item: $selectedPeriod) { period in
-                PayrollDetailView(period: period)
-            }
+        }
+        .sheet(isPresented: $showingCreatePayroll) {
+            CreatePayrollView()
+        }
+        .sheet(item: $selectedPeriod) { period in
+            PayrollDetailView(period: period)
         }
     }
     
@@ -147,12 +145,31 @@ struct PayrollPeriodCard: View {
         .glassCard()
     }
     
+    // Optimized calculation
     private func calculateTotalPayroll() -> Double {
         let dateRange = DateRange(start: period.startDate, end: period.endDate)
         var total = 0.0
         
+        // 1. Calculate Global Tips and Global Hours once (Optimization)
+        var totalTips = 0.0
+        var totalTipHours = 0.0
+        
+        if period.includeTips {
+            let tipsInRange = allTips.filter { dateRange.contains($0.date) }
+            totalTips = tipsInRange.reduce(0) { $0 + $1.totalAmount }
+            
+            // Calculate total tip-eligible hours across ALL employees
+            for emp in employees {
+                let empShifts = emp.shifts.filter { shift in
+                    guard shift.isComplete, shift.includeTips else { return false }
+                    return dateRange.contains(shift.clockInTime)
+                }
+                totalTipHours += empShifts.reduce(0) { $0 + $1.hoursWorked }
+            }
+        }
+        
+        // 2. Calculate per employee
         for employee in employees {
-            // Calculate hours and wages
             let shifts = employee.shifts.filter { shift in
                 guard shift.isComplete else { return false }
                 return dateRange.contains(shift.clockInTime)
@@ -164,23 +181,9 @@ struct PayrollPeriodCard: View {
                 total += hours * wage
             }
             
-            // Add tips if enabled
-            if period.includeTips {
-                let tipsInRange = allTips.filter { dateRange.contains($0.date) }
-                let totalTips = tipsInRange.reduce(0) { $0 + $1.totalAmount }
-                
-                // Calculate total hours for all employees
-                var totalHours = 0.0
-                for emp in employees {
-                    let empShifts = emp.shifts.filter { shift in
-                        guard shift.isComplete, shift.includeTips else { return false }
-                        return dateRange.contains(shift.clockInTime)
-                    }
-                    totalHours += empShifts.reduce(0) { $0 + $1.hoursWorked }
-                }
-                
+            if period.includeTips && totalTipHours > 0 {
                 let tipHours = shifts.filter { $0.includeTips }.reduce(0) { $0 + $1.hoursWorked }
-                let tipShare = totalHours > 0 ? (tipHours / totalHours) * totalTips : 0
+                let tipShare = (tipHours / totalTipHours) * totalTips
                 total += tipShare
             }
         }
@@ -201,39 +204,39 @@ struct CreatePayrollView: View {
     @State private var notes = ""
     
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Payroll Period") {
-                    DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
-                    DatePicker("End Date", selection: $endDate, displayedComponents: .date)
-                }
-                
-                Section("Settings") {
-                    Toggle("Include Tips", isOn: $includeTips)
-                }
-                
-                Section("Notes") {
-                    TextField("Notes (optional)", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
+        Form {
+            Section("Payroll Period") {
+                DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
+                DatePicker("End Date", selection: $endDate, displayedComponents: .date)
+            }
+            
+            Section("Settings") {
+                Toggle("Include Tips", isOn: $includeTips)
+            }
+            
+            Section("Notes") {
+                TextField("Notes (optional)", text: $notes, axis: .vertical)
+                    .lineLimit(3...6)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(DesignSystem.Colors.background)
+        .navigationTitle("Create Payroll")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(DesignSystem.Colors.background)
-            .navigationTitle("Create Payroll")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+            
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Create") {
+                    createPayroll()
                 }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        createPayroll()
-                    }
-                    .disabled(!isValid)
-                }
+                .disabled(!isValid)
             }
         }
     }
@@ -254,10 +257,10 @@ struct CreatePayrollView: View {
         
         do {
             try modelContext.save()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+            DesignSystem.HapticFeedback.trigger(.success)
             dismiss()
         } catch {
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
             print("Failed to create payroll: \(error)")
         }
     }
@@ -279,70 +282,71 @@ struct PayrollDetailView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Period")
-                                .font(DesignSystem.Typography.caption)
-                                .foregroundColor(DesignSystem.Colors.secondary)
-                            Text(DateRange(start: period.startDate, end: period.endDate).rangeString())
-                                .font(DesignSystem.Typography.body)
-                                .foregroundColor(DesignSystem.Colors.primary)
-                        }
-                        
-                        Spacer()
-                        
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text("Total")
-                                .font(DesignSystem.Typography.caption)
-                                .foregroundColor(DesignSystem.Colors.secondary)
-                            Text(payrollData.reduce(0) { $0 + $1.total }.currencyString())
-                                .font(DesignSystem.Typography.title3)
-                                .foregroundColor(DesignSystem.Colors.primary)
-                        }
+        List {
+            Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Period")
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundColor(DesignSystem.Colors.secondary)
+                        Text(DateRange(start: period.startDate, end: period.endDate).rangeString())
+                            .font(DesignSystem.Typography.body)
+                            .foregroundColor(DesignSystem.Colors.primary)
                     }
-                }
-                
-                Section("Employee Breakdown") {
-                    ForEach(payrollData, id: \.employee.id) { data in
-                        PayrollEmployeeRow(data: data)
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Total")
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundColor(DesignSystem.Colors.secondary)
+                        Text(payrollData.reduce(0) { $0 + $1.total }.currencyString())
+                            .font(DesignSystem.Typography.title3)
+                            .foregroundColor(DesignSystem.Colors.primary)
                     }
-                }
-                
-                Section {
-                    Toggle("Mark as Paid", isOn: $period.isPaid)
-                        .onChange(of: period.isPaid) { _, _ in
-                            saveChanges()
-                        }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(DesignSystem.Colors.background)
-            .navigationTitle("Payroll Details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
+            
+            Section("Employee Breakdown") {
+                ForEach(payrollData, id: \.employee.id) { data in
+                    PayrollEmployeeRow(data: data)
+                }
+            }
+            
+            Section {
+                Toggle("Mark as Paid", isOn: $period.isPaid)
+                    .onChange(of: period.isPaid) { _, _ in
+                        saveChanges()
                     }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(DesignSystem.Colors.background)
+        .navigationTitle("Payroll Details")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") {
+                    dismiss()
                 }
             }
         }
     }
     
+    // Optimized calculation method
     private func calculatePayrollData() -> [PayrollEmployeeData] {
         let dateRange = DateRange(start: period.startDate, end: period.endDate)
         var data: [PayrollEmployeeData] = []
         
-        // Calculate total tips if applicable
+        // 1. Calculate Globals FIRST (Optimization)
         let tipsInRange = allTips.filter { dateRange.contains($0.date) }
         let totalTips = period.includeTips ? tipsInRange.reduce(0) { $0 + $1.totalAmount } : 0
         
-        // Calculate total hours for tip distribution
         var totalTipHours = 0.0
         if period.includeTips {
+            // Calculate total hours for tip distribution pool
             for emp in employees {
                 let empShifts = emp.shifts.filter { shift in
                     guard shift.isComplete, shift.includeTips else { return false }
@@ -352,6 +356,7 @@ struct PayrollDetailView: View {
             }
         }
         
+        // 2. Loop through employees only once
         for employee in employees {
             let shifts = employee.shifts.filter { shift in
                 guard shift.isComplete else { return false }
@@ -363,7 +368,7 @@ struct PayrollDetailView: View {
             if hours > 0 {
                 let wages = (employee.hourlyWage ?? 0) * hours
                 
-                // Calculate tip share
+                // Calculate tip share based on pre-calculated totals
                 let tipHours = period.includeTips ? shifts.filter { $0.includeTips }.reduce(0) { $0 + $1.hoursWorked } : 0
                 let tipShare = totalTipHours > 0 ? (tipHours / totalTipHours) * totalTips : 0
                 
@@ -384,15 +389,16 @@ struct PayrollDetailView: View {
     private func saveChanges() {
         do {
             try modelContext.save()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+            DesignSystem.HapticFeedback.trigger(.success)
         } catch {
             print("Failed to save changes: \(error)")
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
         }
     }
 }
 
 // MARK: - Payroll Employee Data
+// KEPT AT FILE LEVEL TO FIX SCOPE ERRORS
 struct PayrollEmployeeData {
     let employee: Employee
     let hours: Double

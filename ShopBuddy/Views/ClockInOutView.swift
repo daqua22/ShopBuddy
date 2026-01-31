@@ -25,7 +25,6 @@ struct ClockInOutView: View {
     }
     
     var body: some View {
-        NavigationStack {
             ScrollView {
                 VStack(spacing: DesignSystem.Spacing.grid_4) {
                     // Currently clocked in section
@@ -56,7 +55,6 @@ struct ClockInOutView: View {
                     Text("Clock out \(employee.name)?")
                 }
             }
-        }
     }
     
     private var currentlyClockedInSection: some View {
@@ -152,13 +150,13 @@ struct ClockInOutView: View {
         guard let shift = employee.currentShift else { return }
         
         shift.clockOutTime = Date()
-        DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+        DesignSystem.HapticFeedback.trigger(.success)
         
         do {
             try modelContext.save()
         } catch {
             print("Failed to clock out: \(error)")
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
         }
     }
 }
@@ -266,7 +264,6 @@ struct ClockPINEntryView: View {
     @State private var errorMessage = ""
     
     var body: some View {
-        NavigationStack {
             VStack(spacing: DesignSystem.Spacing.grid_4) {
                 Spacer()
                 
@@ -313,19 +310,17 @@ struct ClockPINEntryView: View {
                 Spacer()
             }
             .padding(DesignSystem.Spacing.grid_4)
-                        .background(DesignSystem.Colors.background.ignoresSafeArea())
-                        // Fix: This check hides the modifier from macOS while keeping it for iPad
-                        #if os(iOS)
-                        .navigationBarTitleDisplayMode(.inline)
-                        #endif
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Cancel") {
-                                    dismiss()
-                                }
-                            }
-                        }
-        }
+            .background(DesignSystem.Colors.background.ignoresSafeArea())
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
     }
     
     private var numberPad: some View {
@@ -351,7 +346,7 @@ struct ClockPINEntryView: View {
     }
     
     private func handleNumberPress(_ number: String) {
-        DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.light)
+        DesignSystem.HapticFeedback.trigger(.light)
         
         if number == "⌫" {
             if !enteredPIN.isEmpty {
@@ -375,7 +370,7 @@ struct ClockPINEntryView: View {
             errorMessage = "Invalid PIN. Please try again."
             showError = true
             enteredPIN = ""
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
             return
         }
         
@@ -383,12 +378,12 @@ struct ClockPINEntryView: View {
             // Clock out
             guard let shift = employee.currentShift else { return }
             shift.clockOutTime = Date()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+            DesignSystem.HapticFeedback.trigger(.success)
         } else {
             // Clock in
             let shift = Shift(employee: employee)
             modelContext.insert(shift)
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+            DesignSystem.HapticFeedback.trigger(.success)
         }
         
         do {
@@ -398,7 +393,7 @@ struct ClockPINEntryView: View {
             errorMessage = "Failed to process clock action: \(error.localizedDescription)"
             showError = true
             enteredPIN = ""
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
         }
     }
 }

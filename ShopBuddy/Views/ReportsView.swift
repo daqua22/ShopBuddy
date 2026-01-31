@@ -21,7 +21,6 @@ struct ReportsView: View {
     @State private var showingDateRangePicker = false
     
     var body: some View {
-        NavigationStack {
             ScrollView {
                 VStack(spacing: DesignSystem.Spacing.grid_3) {
                     // Date range selector
@@ -46,7 +45,6 @@ struct ReportsView: View {
             .sheet(isPresented: $showingDateRangePicker) {
                 DateRangePickerView(selectedRange: $selectedDateRange)
             }
-        }
     }
     
     private var dateRangeSelector: some View {

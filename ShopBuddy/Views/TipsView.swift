@@ -21,7 +21,6 @@ struct TipsView: View {
     @State private var showingDateRangePicker = false
     
     var body: some View {
-        NavigationStack {
             ScrollView {
                 VStack(spacing: DesignSystem.Spacing.grid_3) {
                     // Date range selector
@@ -63,7 +62,6 @@ struct TipsView: View {
             .sheet(isPresented: $showingDateRangePicker) {
                 DateRangePickerView(selectedRange: $selectedDateRange)
             }
-        }
     }
     
     private var dateRangeSelector: some View {
@@ -356,13 +354,13 @@ struct DailyTipsRow: View {
     
     private func markAsPaid() {
         tips.markAsPaid()
-        DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+        DesignSystem.HapticFeedback.trigger(.success)
         
         do {
             try modelContext.save()
         } catch {
             print("Failed to mark tips as paid: \(error)")
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
         }
     }
 }
@@ -378,13 +376,16 @@ struct AddDailyTipsView: View {
     @State private var notes = ""
     
     var body: some View {
-        NavigationStack {
             Form {
                 Section("Tip Information") {
                     DatePicker("Date", selection: $selectedDate, displayedComponents: .date)
                     
+                    #if os(iOS)
                     TextField("Amount", text: $amount)
                         .keyboardType(.decimalPad)
+                    #else
+                    TextField("Amount", text: $amount)
+                    #endif
                 }
                 
                 Section("Notes") {
@@ -395,7 +396,9 @@ struct AddDailyTipsView: View {
             .scrollContentBackground(.hidden)
             .background(DesignSystem.Colors.background)
             .navigationTitle("Add Tips")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -410,7 +413,6 @@ struct AddDailyTipsView: View {
                     .disabled(!isValid)
                 }
             }
-        }
     }
     
     private var isValid: Bool {
@@ -428,10 +430,10 @@ struct AddDailyTipsView: View {
         
         do {
             try modelContext.save()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+            DesignSystem.HapticFeedback.trigger(.success)
             dismiss()
         } catch {
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
             print("Failed to save tips: \(error)")
         }
     }
@@ -448,7 +450,6 @@ struct DateRangePickerView: View {
     @State private var showingCustom = false
     
     var body: some View {
-        NavigationStack {
             List {
                 Section("Preset Ranges") {
                     Button {
@@ -484,7 +485,9 @@ struct DateRangePickerView: View {
                 }
             }
             .navigationTitle("Select Date Range")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -492,6 +495,5 @@ struct DateRangePickerView: View {
                     }
                 }
             }
-        }
     }
 }

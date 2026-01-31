@@ -7,10 +7,9 @@
 
 import SwiftUI
 import SwiftData
-import Combine // Required for Timer and Publisher functionality
+import Combine
 
 struct ContentView: View {
-    
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.modelContext) private var modelContext
     
@@ -23,7 +22,6 @@ struct ContentView: View {
     var body: some View {
         Group {
             if employees.isEmpty {
-                // First launch - create default manager
                 OnboardingView()
             } else {
                 mainInterface
@@ -33,79 +31,91 @@ struct ContentView: View {
     }
     
     private var mainInterface: some View {
+        // TabView is the root component
         TabView(selection: $selectedTab) {
             ForEach(visibleTabs, id: \.self) { tab in
-                tabContent(for: tab)
-                    .tabItem {
-                        Label(tab.rawValue, systemImage: tab.icon)
-                    }
-                    .tag(tab)
+                // Each tab gets its own NavigationStack
+                NavigationStack {
+                    tabContent(for: tab)
+                        .navigationTitle(tab.rawValue) // Titles will now update correctly
+                        .toolbar {
+                            // LEADING: Logout & User Info
+                            ToolbarItem(placement: .topBarLeading) {
+                                if coordinator.isAuthenticated {
+                                    userInfoHeader
+                                }
+                            }
+                            
+                            // TRAILING: Login Button
+                            ToolbarItem(placement: .topBarTrailing) {
+                                if !coordinator.isAuthenticated {
+                                    loginButton
+                                }
+                            }
+                        }
+                }
+                .tabItem {
+                    Label(tab.rawValue, systemImage: tab.icon)
+                }
+                .tag(tab)
             }
-        }
-        .overlay(alignment: .topTrailing) {
-            headerButtons
         }
         .sheet(isPresented: $showingPINEntry) {
             PINEntryView()
         }
     }
-    
-    @ViewBuilder
-    private func tabContent(for tab: TabItem) -> some View {
-        switch tab {
-        case .inventory:
-            InventoryView()
-        case .checklists:
-            ChecklistsView()
-        case .clockInOut:
-            ClockInOutView()
-        case .tips:
-            TipsView()
-        case .employees:
-            EmployeesView()
-        case .reports:
-            ReportsView()
-        case .payroll:
-            PayrollView()
-        }
-    }
-    
-    private var headerButtons: some View {
-        HStack(spacing: DesignSystem.Spacing.grid_2) {
-            if coordinator.isAuthenticated {
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(coordinator.currentUserDisplayName)
-                        .font(DesignSystem.Typography.headline)
-                        .foregroundColor(DesignSystem.Colors.primary)
-                    
-                    Text(coordinator.currentUserRole)
-                        .font(DesignSystem.Typography.caption)
-                        .foregroundColor(DesignSystem.Colors.secondary)
+
+    // Clean up the body by extracting the sub-views
+    private var userInfoHeader: some View {
+        HStack(spacing: 12) {
+            Button {
+                withAnimation {
+                    coordinator.logout()
+                    selectedTab = .inventory
                 }
-                
-                Button {
-                    withAnimation {
-                        coordinator.logout()
-                        selectedTab = .inventory
-                    }
-                } label: {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .font(.title2)
-                        .foregroundColor(DesignSystem.Colors.primary)
-                }
-            } else {
-                Button {
-                    showingPINEntry = true
-                } label: {
-                    Label("Login", systemImage: "person.circle")
-                        .font(DesignSystem.Typography.headline)
-                        .foregroundColor(DesignSystem.Colors.primary)
-                }
-                .buttonStyle(DesignSystem.SecondaryButtonStyle())
+            } label: {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(DesignSystem.Colors.error)
+            }
+            
+            VStack(alignment: .leading, spacing: 0) {
+                Text(coordinator.currentUserDisplayName)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(DesignSystem.Colors.primary)
+                Text(coordinator.currentUserRole)
+                    .font(.system(size: 10))
+                    .foregroundColor(DesignSystem.Colors.secondary)
             }
         }
-        .padding(DesignSystem.Spacing.grid_2)
     }
+
+    private var loginButton: some View {
+        Button {
+            showingPINEntry = true
+        } label: {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 18))
+                .foregroundColor(DesignSystem.Colors.accent)
+                .padding(8)
+                .background(DesignSystem.Colors.surface)
+                .clipShape(Circle())
+        }
+    }
+    
+    @ViewBuilder
+        private func tabContent(for tab: TabItem) -> some View {
+            switch tab {
+            case .inventory: InventoryView()
+            case .checklists: ChecklistsView()
+            case .clockInOut: ClockInOutView()
+            case .tips: TipsView()
+            case .employees: EmployeesView()
+            case .reports: ReportsView()
+            case .payroll: PayrollView()
+            case .settings: SettingsView()
+            }
+        }
     
     private var visibleTabs: [TabItem] {
         TabItem.visibleTabs(for: coordinator.currentViewState)
@@ -191,7 +201,7 @@ struct OnboardingView: View {
         guard managerPIN.count == 4 && managerPIN.allSatisfy({ $0.isNumber }) else {
             errorMessage = "PIN must be exactly 4 digits"
             showError = true
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
             return
         }
         
@@ -208,11 +218,11 @@ struct OnboardingView: View {
         
         do {
             try modelContext.save()
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.success)
+            DesignSystem.HapticFeedback.trigger(.success)
         } catch {
             errorMessage = "Failed to create account: \(error.localizedDescription)"
             showError = true
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
+            DesignSystem.HapticFeedback.trigger(.error)
         }
     }
 }
@@ -230,7 +240,6 @@ struct PINEntryView: View {
     @State private var showError = false
     
     var body: some View {
-        NavigationStack {
             VStack(spacing: DesignSystem.Spacing.grid_4) {
                 Spacer()
                 
@@ -283,7 +292,6 @@ struct PINEntryView: View {
                     }
                 }
             }
-        }
     }
     
     private var numberPad: some View {
@@ -309,7 +317,7 @@ struct PINEntryView: View {
     }
     
     private func handleNumberPress(_ number: String) {
-        DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.light)
+        DesignSystem.HapticFeedback.trigger(.light)
         
         if number == "⌫" {
             if !enteredPIN.isEmpty {
@@ -335,7 +343,6 @@ struct PINEntryView: View {
         } else {
             showError = true
             enteredPIN = ""
-            DesignSystem.HapticFeedbackDesignSystem.HapticFeedback.trigger(.error)
         }
     }
 }
