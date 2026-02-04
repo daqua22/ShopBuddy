@@ -224,6 +224,7 @@ struct ReportsView: View {
         let hoursData = calculateEmployeeHours()
         
         return VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_2) {
+            // Frame for full width consistency with other cards
             Text("Employee Hours")
                 .font(DesignSystem.Typography.title3)
                 .foregroundColor(DesignSystem.Colors.primary)
@@ -267,6 +268,7 @@ struct ReportsView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity)
         .padding(DesignSystem.Spacing.grid_2)
         .glassCard()
     }
@@ -291,7 +293,7 @@ struct ReportsView: View {
             }
         }
         
-        let avgRate = employeesWithWage > 0 ? totalCost / totalHours : 0
+        let avgRate = (employeesWithWage > 0 && totalHours > 0) ? totalCost / totalHours : 0
         
         return (totalHours: totalHours, totalCost: totalCost, avgRate: avgRate)
     }

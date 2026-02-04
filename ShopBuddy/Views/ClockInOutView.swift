@@ -25,36 +25,36 @@ struct ClockInOutView: View {
     }
     
     var body: some View {
-            ScrollView {
-                VStack(spacing: DesignSystem.Spacing.grid_4) {
-                    // Currently clocked in section
-                    currentlyClockedInSection
-                    
-                    // Clock in/out buttons
-                    clockActionButtons
-                    
-                    // All employees list
-                    allEmployeesSection
-                }
-                .padding(DesignSystem.Spacing.grid_2)
+        ScrollView {
+            VStack(spacing: DesignSystem.Spacing.grid_4) {
+                // Currently clocked in section
+                currentlyClockedInSection
+                
+                // Clock in/out buttons
+                clockActionButtons
+                
+                // All employees list
+                allEmployeesSection
             }
-            .background(DesignSystem.Colors.background.ignoresSafeArea())
-            .navigationTitle("Clock In/Out")
-            .sheet(isPresented: $showingPINEntry) {
-                ClockPINEntryView(employee: selectedEmployee)
-            }
-            .alert("Clock Out Confirmation", isPresented: $showingConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Clock Out", role: .destructive) {
-                    if let employee = selectedEmployee {
-                        clockOut(employee: employee)
-                    }
-                }
-            } message: {
+            .padding(DesignSystem.Spacing.grid_2)
+        }
+        .background(DesignSystem.Colors.background.ignoresSafeArea())
+        .navigationTitle("Clock In/Out")
+        .fullScreenCover(isPresented: $showingPINEntry) {
+            ClockPINEntryView(employee: selectedEmployee)
+        }
+        .alert("Clock Out Confirmation", isPresented: $showingConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Clock Out", role: .destructive) {
                 if let employee = selectedEmployee {
-                    Text("Clock out \(employee.name)?")
+                    clockOut(employee: employee)
                 }
             }
+        } message: {
+            if let employee = selectedEmployee {
+                Text("Clock out \(employee.name)?")
+            }
+        }
     }
     
     private var currentlyClockedInSection: some View {
@@ -248,7 +248,7 @@ struct EmployeeStatusRow: View {
     }
 }
 
-// MARK: - Clock PIN Entry View
+// MARK: - Clock PIN Entry View - FULLSCREEN
 struct ClockPINEntryView: View {
     
     @Environment(\.dismiss) private var dismiss
@@ -264,81 +264,105 @@ struct ClockPINEntryView: View {
     @State private var errorMessage = ""
     
     var body: some View {
-            VStack(spacing: DesignSystem.Spacing.grid_4) {
-                Spacer()
+        GeometryReader { geometry in
+            ZStack {
+                DesignSystem.Colors.background.ignoresSafeArea()
                 
-                VStack(spacing: DesignSystem.Spacing.grid_2) {
-                    Image(systemName: "clock.fill")
-                        .font(.system(size: 60))
-                        .foregroundColor(DesignSystem.Colors.accent)
+                VStack(spacing: 0) {
+                    // Cancel button at top
+                    HStack {
+                        Spacer()
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundColor(DesignSystem.Colors.secondary)
+                        }
+                        .padding(DesignSystem.Spacing.grid_3)
+                    }
                     
-                    Text("Enter Your PIN")
-                        .font(DesignSystem.Typography.title)
-                        .foregroundColor(DesignSystem.Colors.primary)
+                    Spacer()
                     
-                    Text("Enter your 4-digit PIN to clock in/out")
-                        .font(DesignSystem.Typography.body)
-                        .foregroundColor(DesignSystem.Colors.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                
-                // PIN display
-                HStack(spacing: DesignSystem.Spacing.grid_2) {
-                    ForEach(0..<4, id: \.self) { index in
-                        Circle()
-                            .fill(index < enteredPIN.count ? DesignSystem.Colors.accent : DesignSystem.Colors.surface)
-                            .frame(width: 20, height: 20)
-                            .overlay(
+                    // PIN Entry Content
+                    VStack(spacing: DesignSystem.Spacing.grid_3) {
+                        VStack(spacing: DesignSystem.Spacing.grid_2) {
+                            Image(systemName: "clock.fill")
+                                .font(.system(size: 60))
+                                .foregroundColor(DesignSystem.Colors.accent)
+                            
+                            Text("Enter Your PIN")
+                                .font(DesignSystem.Typography.title)
+                                .foregroundColor(DesignSystem.Colors.primary)
+                            
+                            Text("Enter your 4-digit PIN to clock in/out")
+                                .font(DesignSystem.Typography.body)
+                                .foregroundColor(DesignSystem.Colors.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        
+                        // PIN display
+                        HStack(spacing: DesignSystem.Spacing.grid_3) {
+                            ForEach(0..<4, id: \.self) { index in
                                 Circle()
-                                    .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 1)
-                            )
+                                    .fill(index < enteredPIN.count ? DesignSystem.Colors.accent : DesignSystem.Colors.surface)
+                                    .frame(width: 20, height: 20)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 2)
+                                    )
+                            }
+                        }
+                        .padding(.vertical, DesignSystem.Spacing.grid_2)
+                        
+                        if showError {
+                            Text(errorMessage)
+                                .font(DesignSystem.Typography.body)
+                                .foregroundColor(DesignSystem.Colors.error)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, DesignSystem.Spacing.grid_4)
+                        }
                     }
-                }
-                .padding(.vertical, DesignSystem.Spacing.grid_3)
-                
-                if showError {
-                    Text(errorMessage)
-                        .font(DesignSystem.Typography.body)
-                        .foregroundColor(DesignSystem.Colors.error)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, DesignSystem.Spacing.grid_4)
-                }
-                
-                // Number pad
-                numberPad
-                
-                Spacer()
-            }
-            .padding(DesignSystem.Spacing.grid_4)
-            .background(DesignSystem.Colors.background.ignoresSafeArea())
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+                    
+                    Spacer()
+                    
+                    // Number pad with responsive sizing
+                    numberPad(geometry: geometry)
+                        .padding(.horizontal, DesignSystem.Spacing.grid_2)
+                        .padding(.bottom, DesignSystem.Spacing.grid_2)
+                        .safeAreaInset(edge: .bottom) {
+                            Color.clear.frame(height: 0)
+                        }
                 }
             }
+        }
     }
     
-    private var numberPad: some View {
-        VStack(spacing: DesignSystem.Spacing.grid_2) {
+    private func numberPad(geometry: GeometryProxy) -> some View {
+        // Calculate button size based on available width, with min/max constraints
+        let availableWidth = geometry.size.width - (DesignSystem.Spacing.grid_2 * 2)
+        let spacing = DesignSystem.Spacing.grid_2
+        let buttonSize = min(80, max(56, (availableWidth - spacing * 2) / 3))
+        let fontSize = max(24, min(32, buttonSize * 0.4))
+        
+        return VStack(spacing: spacing) {
             ForEach([["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["", "0", "⌫"]], id: \.self) { row in
-                HStack(spacing: DesignSystem.Spacing.grid_2) {
+                HStack(spacing: spacing) {
                     ForEach(row, id: \.self) { number in
                         Button {
                             handleNumberPress(number)
                         } label: {
                             Text(number)
-                                .font(DesignSystem.Typography.largeTitle)
+                                .font(.system(size: fontSize, weight: .medium, design: .rounded))
                                 .foregroundColor(DesignSystem.Colors.primary)
-                                .frame(width: 80, height: 80)
+                                .frame(width: buttonSize, height: buttonSize)
+                                .frame(minWidth: 44, minHeight: 44) // Apple HIG minimum
                                 .background(number.isEmpty ? Color.clear : DesignSystem.Colors.surface)
-                                .cornerRadius(DesignSystem.CornerRadius.large)
+                                .cornerRadius(DesignSystem.CornerRadius.medium)
+                                .contentShape(Rectangle())
                         }
                         .disabled(number.isEmpty)
+                        .opacity(number.isEmpty ? 0 : 1)
                     }
                 }
             }
@@ -366,7 +390,16 @@ struct ClockPINEntryView: View {
     }
     
     private func processClockAction() {
+        // Debug logging to diagnose clock-in issues
+        print("🔐 Clock Action Debug:")
+        print("   Entered PIN: '\(enteredPIN)'")
+        print("   Active employees count: \(activeEmployees.count)")
+        for emp in activeEmployees {
+            print("   - \(emp.name): PIN='\(emp.pin)', isActive=\(emp.isActive)")
+        }
+        
         guard let employee = activeEmployees.first(where: { $0.pin == enteredPIN }) else {
+            print("❌ No employee found with PIN '\(enteredPIN)'")
             errorMessage = "Invalid PIN. Please try again."
             showError = true
             enteredPIN = ""
@@ -374,22 +407,31 @@ struct ClockPINEntryView: View {
             return
         }
         
+        print("✅ Found employee: \(employee.name)")
+        
         if employee.isClockedIn {
             // Clock out
-            guard let shift = employee.currentShift else { return }
+            guard let shift = employee.currentShift else {
+                print("❌ Employee is marked as clocked in but has no current shift")
+                return
+            }
             shift.clockOutTime = Date()
+            print("✅ Clocking out \(employee.name)")
             DesignSystem.HapticFeedback.trigger(.success)
         } else {
             // Clock in
             let shift = Shift(employee: employee)
             modelContext.insert(shift)
+            print("✅ Clocking in \(employee.name)")
             DesignSystem.HapticFeedback.trigger(.success)
         }
         
         do {
             try modelContext.save()
+            print("✅ Context saved successfully")
             dismiss()
         } catch {
+            print("❌ Failed to save: \(error)")
             errorMessage = "Failed to process clock action: \(error.localizedDescription)"
             showError = true
             enteredPIN = ""

@@ -35,44 +35,48 @@ struct ChecklistsView: View {
     }
     
     var body: some View {
-            ScrollView {
-                VStack(spacing: DesignSystem.Spacing.grid_3) {
-                    if checklists.isEmpty {
-                        EmptyStateView(
-                            icon: "checklist",
-                            title: "No Checklists",
-                            message: "Create your first checklist to track daily tasks",
-                            actionTitle: canEdit ? "Create Checklist" : nil,
-                            action: canEdit ? { showingAddChecklist = true } : nil
-                        )
-                    } else {
-                        checklistsList
-                    }
-                }
-                .padding(DesignSystem.Spacing.grid_2)
-            }
-            .background(DesignSystem.Colors.background.ignoresSafeArea())
-            .navigationTitle("Checklists")
-            .toolbar {
-                if canEdit {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showingAddChecklist = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                    }
+        ScrollView {
+            VStack(spacing: DesignSystem.Spacing.grid_3) {
+                if checklists.isEmpty {
+                    EmptyStateView(
+                        icon: "checklist",
+                        title: "No Checklists",
+                        message: "Create your first checklist to track daily tasks",
+                        actionTitle: canEdit ? "Create Checklist" : nil,
+                        action: canEdit ? { showingAddChecklist = true } : nil
+                    )
+                } else {
+                    checklistsList
                 }
             }
-            .sheet(isPresented: $showingAddChecklist) {
+            .padding(DesignSystem.Spacing.grid_2)
+        }
+        .background(DesignSystem.Colors.background.ignoresSafeArea())
+        .navigationTitle("Checklists")
+        .toolbar {
+            if canEdit {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingAddChecklist = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddChecklist) {
+            NavigationStack {
                 AddEditChecklistView()
             }
-            .sheet(item: $editingChecklist) { checklist in
+        }
+        .sheet(item: $editingChecklist) { checklist in
+            NavigationStack {
                 AddEditChecklistView(checklist: checklist)
             }
-            .sheet(isPresented: $showingEmployeeSelector) {
-                EmployeeSelectorView(task: selectedTask)
-            }
+        }
+        .sheet(isPresented: $showingEmployeeSelector) {
+            EmployeeSelectorView(task: selectedTask)
+        }
     }
     
     private var checklistsList: some View {
@@ -244,7 +248,7 @@ struct EmployeeSelectorView: View {
     }
     
     var body: some View {
-        NavigationStack { // Added NavigationStack for the sheet's own navigation
+        NavigationStack {
             List {
                 if clockedInEmployees.isEmpty {
                     ContentUnavailableView(
@@ -286,8 +290,8 @@ struct EmployeeSelectorView: View {
                     }
                 }
             }
-        } // Closing for NavigationStack
-    } // Closing for body
+        }
+    }
     
     private func selectEmployee(_ employee: Employee) {
         guard let task = task else { return }
@@ -304,6 +308,7 @@ struct EmployeeSelectorView: View {
         }
     }
 }
+
 // MARK: - Add/Edit Checklist View
 struct AddEditChecklistView: View {
     
@@ -327,64 +332,64 @@ struct AddEditChecklistView: View {
     }
     
     var body: some View {
-            Form {
-                Section("Checklist Information") {
-                    TextField("Checklist Title", text: $title)
-                }
-                
-                Section("Tasks") {
-                    ForEach(tasks.indices, id: \.self) { index in
-                        HStack {
-                            TextField("Task \(index + 1)", text: $tasks[index])
-                            
-                            if tasks.count > 1 {
-                                Button {
-                                    tasks.remove(at: index)
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
-                                        .foregroundColor(.red)
-                                }
+        Form {
+            Section("Checklist Information") {
+                TextField("Checklist Title", text: $title)
+            }
+            
+            Section("Tasks") {
+                ForEach(tasks.indices, id: \.self) { index in
+                    HStack {
+                        TextField("Task \(index + 1)", text: $tasks[index])
+                        
+                        if tasks.count > 1 {
+                            Button {
+                                tasks.remove(at: index)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.red)
                             }
                         }
                     }
-                    
-                    Button {
-                        tasks.append("")
+                }
+                
+                Button {
+                    tasks.append("")
+                } label: {
+                    Label("Add Task", systemImage: "plus.circle.fill")
+                }
+            }
+            
+            if checklist != nil {
+                Section {
+                    Button(role: .destructive) {
+                        deleteChecklist()
                     } label: {
-                        Label("Add Task", systemImage: "plus.circle.fill")
-                    }
-                }
-                
-                if checklist != nil {
-                    Section {
-                        Button(role: .destructive) {
-                            deleteChecklist()
-                        } label: {
-                            Label("Delete Checklist", systemImage: "trash")
-                        }
+                        Label("Delete Checklist", systemImage: "trash")
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(DesignSystem.Colors.background)
-            .navigationTitle(checklist == nil ? "New Checklist" : "Edit Checklist")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        saveChecklist()
-                    }
-                    .disabled(!isValid)
+        }
+        .scrollContentBackground(.hidden)
+        .background(DesignSystem.Colors.background)
+        .navigationTitle(checklist == nil ? "New Checklist" : "Edit Checklist")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
                 }
             }
+            
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    saveChecklist()
+                }
+                .disabled(!isValid)
+            }
+        }
     }
     
     private var isValid: Bool {

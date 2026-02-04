@@ -48,10 +48,14 @@ struct PayrollView: View {
             }
         }
         .sheet(isPresented: $showingCreatePayroll) {
-            CreatePayrollView()
+            NavigationStack {
+                CreatePayrollView()
+            }
         }
         .sheet(item: $selectedPeriod) { period in
-            PayrollDetailView(period: period)
+            NavigationStack {
+                PayrollDetailView(period: period)
+            }
         }
     }
     

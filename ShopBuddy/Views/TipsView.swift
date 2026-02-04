@@ -21,47 +21,49 @@ struct TipsView: View {
     @State private var showingDateRangePicker = false
     
     var body: some View {
-            ScrollView {
-                VStack(spacing: DesignSystem.Spacing.grid_3) {
-                    // Date range selector
-                    dateRangeSelector
-                    
-                    // Tips summary
-                    tipsSummaryCard
-                    
-                    // Employee breakdown
-                    if coordinator.isManager {
-                        employeeTipsBreakdown
-                    } else if let employee = coordinator.currentEmployee {
-                        singleEmployeeTips(employee: employee)
-                    }
-                    
-                    // Daily tips list
-                    if coordinator.isManager {
-                        dailyTipsList
-                    }
-                }
-                .padding(DesignSystem.Spacing.grid_2)
-            }
-            .background(DesignSystem.Colors.background.ignoresSafeArea())
-            .navigationTitle("Tips")
-            .toolbar {
+        ScrollView {
+            VStack(spacing: DesignSystem.Spacing.grid_3) {
+                // Date range selector
+                dateRangeSelector
+                
+                // Tips summary
+                tipsSummaryCard
+                
+                // Employee breakdown
                 if coordinator.isManager {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showingAddTips = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
+                    employeeTipsBreakdown
+                } else if let employee = coordinator.currentEmployee {
+                    singleEmployeeTips(employee: employee)
+                }
+                
+                // Daily tips list
+                if coordinator.isManager {
+                    dailyTipsList
+                }
+            }
+            .padding(DesignSystem.Spacing.grid_2)
+        }
+        .background(DesignSystem.Colors.background.ignoresSafeArea())
+        .navigationTitle("Tips")
+        .toolbar {
+            if coordinator.isManager {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingAddTips = true
+                    } label: {
+                        Image(systemName: "plus")
                     }
                 }
             }
-            .sheet(isPresented: $showingAddTips) {
+        }
+        .sheet(isPresented: $showingAddTips) {
+            NavigationStack {
                 AddDailyTipsView()
             }
-            .sheet(isPresented: $showingDateRangePicker) {
-                DateRangePickerView(selectedRange: $selectedDateRange)
-            }
+        }
+        .sheet(isPresented: $showingDateRangePicker) {
+            DateRangePickerView(selectedRange: $selectedDateRange)
+        }
     }
     
     private var dateRangeSelector: some View {
@@ -376,43 +378,43 @@ struct AddDailyTipsView: View {
     @State private var notes = ""
     
     var body: some View {
-            Form {
-                Section("Tip Information") {
-                    DatePicker("Date", selection: $selectedDate, displayedComponents: .date)
-                    
-                    #if os(iOS)
-                    TextField("Amount", text: $amount)
-                        .keyboardType(.decimalPad)
-                    #else
-                    TextField("Amount", text: $amount)
-                    #endif
-                }
+        Form {
+            Section("Tip Information") {
+                DatePicker("Date", selection: $selectedDate, displayedComponents: .date)
                 
-                Section("Notes") {
-                    TextField("Notes (optional)", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
+                #if os(iOS)
+                TextField("Amount", text: $amount)
+                    .keyboardType(.decimalPad)
+                #else
+                TextField("Amount", text: $amount)
+                #endif
+            }
+            
+            Section("Notes") {
+                TextField("Notes (optional)", text: $notes, axis: .vertical)
+                    .lineLimit(3...6)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(DesignSystem.Colors.background)
+        .navigationTitle("Add Tips")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(DesignSystem.Colors.background)
-            .navigationTitle("Add Tips")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+            
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    saveTips()
                 }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        saveTips()
-                    }
-                    .disabled(!isValid)
-                }
+                .disabled(!isValid)
             }
+        }
     }
     
     private var isValid: Bool {
@@ -450,6 +452,7 @@ struct DateRangePickerView: View {
     @State private var showingCustom = false
     
     var body: some View {
+        NavigationStack {
             List {
                 Section("Preset Ranges") {
                     Button {
@@ -495,5 +498,6 @@ struct DateRangePickerView: View {
                     }
                 }
             }
+        }
     }
 }

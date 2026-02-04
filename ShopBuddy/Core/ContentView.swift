@@ -37,18 +37,13 @@ struct ContentView: View {
                 // Each tab gets its own NavigationStack
                 NavigationStack {
                     tabContent(for: tab)
-                        .navigationTitle(tab.rawValue) // Titles will now update correctly
+                        .navigationTitle(tab.rawValue)
                         .toolbar {
-                            // LEADING: Logout & User Info
+                            // LEADING: Login/Logout & User Info
                             ToolbarItem(placement: .topBarLeading) {
                                 if coordinator.isAuthenticated {
                                     userInfoHeader
-                                }
-                            }
-                            
-                            // TRAILING: Login Button
-                            ToolbarItem(placement: .topBarTrailing) {
-                                if !coordinator.isAuthenticated {
+                                } else {
                                     loginButton
                                 }
                             }
@@ -65,7 +60,7 @@ struct ContentView: View {
         }
     }
 
-    // Clean up the body by extracting the sub-views
+    // User info header with logout
     private var userInfoHeader: some View {
         HStack(spacing: 12) {
             Button {
@@ -77,6 +72,9 @@ struct ContentView: View {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(DesignSystem.Colors.error)
+                    .frame(width: 32, height: 32)
+                    .background(DesignSystem.Colors.surface)
+                    .clipShape(Circle())
             }
             
             VStack(alignment: .leading, spacing: 0) {
@@ -90,32 +88,33 @@ struct ContentView: View {
         }
     }
 
+    // Login button - matching logout style
     private var loginButton: some View {
         Button {
             showingPINEntry = true
         } label: {
             Image(systemName: "lock.fill")
-                .font(.system(size: 18))
+                .font(.system(size: 16, weight: .bold))
                 .foregroundColor(DesignSystem.Colors.accent)
-                .padding(8)
+                .frame(width: 32, height: 32)
                 .background(DesignSystem.Colors.surface)
                 .clipShape(Circle())
         }
     }
     
     @ViewBuilder
-        private func tabContent(for tab: TabItem) -> some View {
-            switch tab {
-            case .inventory: InventoryView()
-            case .checklists: ChecklistsView()
-            case .clockInOut: ClockInOutView()
-            case .tips: TipsView()
-            case .employees: EmployeesView()
-            case .reports: ReportsView()
-            case .payroll: PayrollView()
-            case .settings: SettingsView()
-            }
+    private func tabContent(for tab: TabItem) -> some View {
+        switch tab {
+        case .inventory: InventoryView()
+        case .checklists: ChecklistsView()
+        case .clockInOut: ClockInOutView()
+        case .tips: TipsView()
+        case .employees: EmployeesView()
+        case .reports: ReportsView()
+        case .payroll: PayrollView()
+        case .settings: SettingsView()
         }
+    }
     
     private var visibleTabs: [TabItem] {
         TabItem.visibleTabs(for: coordinator.currentViewState)
@@ -227,7 +226,7 @@ struct OnboardingView: View {
     }
 }
 
-// MARK: - PIN Entry View
+// MARK: - PIN Entry View - FULLSCREEN
 struct PINEntryView: View {
     
     @Environment(\.dismiss) private var dismiss
@@ -240,76 +239,103 @@ struct PINEntryView: View {
     @State private var showError = false
     
     var body: some View {
-            VStack(spacing: DesignSystem.Spacing.grid_4) {
-                Spacer()
+        GeometryReader { geometry in
+            ZStack {
+                DesignSystem.Colors.background.ignoresSafeArea()
                 
-                VStack(spacing: DesignSystem.Spacing.grid_2) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 60))
-                        .foregroundColor(DesignSystem.Colors.accent)
+                VStack(spacing: 0) {
+                    // Cancel button at top
+                    HStack {
+                        Spacer()
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundColor(DesignSystem.Colors.secondary)
+                        }
+                        .padding(DesignSystem.Spacing.grid_3)
+                    }
                     
-                    Text("Enter Your PIN")
-                        .font(DesignSystem.Typography.title)
-                        .foregroundColor(DesignSystem.Colors.primary)
+                    Spacer()
                     
-                    Text("Enter your 4-digit PIN to continue")
-                        .font(DesignSystem.Typography.body)
-                        .foregroundColor(DesignSystem.Colors.secondary)
-                }
-                
-                HStack(spacing: DesignSystem.Spacing.grid_2) {
-                    ForEach(0..<4, id: \.self) { index in
-                        Circle()
-                            .fill(index < enteredPIN.count ? DesignSystem.Colors.accent : DesignSystem.Colors.surface)
-                            .frame(width: 20, height: 20)
-                            .overlay(
+                    // PIN Entry Content
+                    VStack(spacing: DesignSystem.Spacing.grid_3) {
+                        VStack(spacing: DesignSystem.Spacing.grid_2) {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 60))
+                                .foregroundColor(DesignSystem.Colors.accent)
+                            
+                            Text("Enter Your PIN")
+                                .font(DesignSystem.Typography.title)
+                                .foregroundColor(DesignSystem.Colors.primary)
+                            
+                            Text("Enter your 4-digit PIN to continue")
+                                .font(DesignSystem.Typography.body)
+                                .foregroundColor(DesignSystem.Colors.secondary)
+                        }
+                        
+                        // PIN display circles
+                        HStack(spacing: DesignSystem.Spacing.grid_3) {
+                            ForEach(0..<4, id: \.self) { index in
                                 Circle()
-                                    .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 1)
-                            )
+                                    .fill(index < enteredPIN.count ? DesignSystem.Colors.accent : DesignSystem.Colors.surface)
+                                    .frame(width: 20, height: 20)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 2)
+                                    )
+                            }
+                        }
+                        .padding(.vertical, DesignSystem.Spacing.grid_2)
+                        
+                        if showError {
+                            Text("Invalid PIN. Please try again.")
+                                .font(DesignSystem.Typography.body)
+                                .foregroundColor(DesignSystem.Colors.error)
+                                .padding(.horizontal, DesignSystem.Spacing.grid_4)
+                        }
                     }
-                }
-                .padding(.vertical, DesignSystem.Spacing.grid_3)
-                
-                if showError {
-                    Text("Invalid PIN. Please try again.")
-                        .font(DesignSystem.Typography.body)
-                        .foregroundColor(DesignSystem.Colors.error)
-                }
-                
-                numberPad
-                
-                Spacer()
-            }
-            .padding(DesignSystem.Spacing.grid_4)
-            .background(DesignSystem.Colors.background.ignoresSafeArea())
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+                    
+                    Spacer()
+                    
+                    // Number pad with responsive sizing
+                    numberPad(geometry: geometry)
+                        .padding(.horizontal, DesignSystem.Spacing.grid_2)
+                        .padding(.bottom, DesignSystem.Spacing.grid_2)
+                        .safeAreaInset(edge: .bottom) {
+                            Color.clear.frame(height: 0)
+                        }
                 }
             }
+        }
     }
     
-    private var numberPad: some View {
-        VStack(spacing: DesignSystem.Spacing.grid_2) {
+    private func numberPad(geometry: GeometryProxy) -> some View {
+        // Calculate button size based on available width, with min/max constraints
+        let availableWidth = geometry.size.width - (DesignSystem.Spacing.grid_2 * 2)
+        let spacing = DesignSystem.Spacing.grid_2
+        let buttonSize = min(80, max(56, (availableWidth - spacing * 2) / 3))
+        let fontSize = max(24, min(32, buttonSize * 0.4))
+        
+        return VStack(spacing: spacing) {
             ForEach([["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["", "0", "⌫"]], id: \.self) { row in
-                HStack(spacing: DesignSystem.Spacing.grid_2) {
+                HStack(spacing: spacing) {
                     ForEach(row, id: \.self) { number in
                         Button {
                             handleNumberPress(number)
                         } label: {
                             Text(number)
-                                .font(DesignSystem.Typography.largeTitle)
+                                .font(.system(size: fontSize, weight: .medium, design: .rounded))
                                 .foregroundColor(DesignSystem.Colors.primary)
-                                .frame(width: 80, height: 80)
+                                .frame(width: buttonSize, height: buttonSize)
+                                .frame(minWidth: 44, minHeight: 44) // Apple HIG minimum
                                 .background(number.isEmpty ? Color.clear : DesignSystem.Colors.surface)
-                                .cornerRadius(DesignSystem.CornerRadius.large)
+                                .cornerRadius(DesignSystem.CornerRadius.medium)
+                                .contentShape(Rectangle())
                         }
                         .disabled(number.isEmpty)
+                        .opacity(number.isEmpty ? 0 : 1)
                     }
                 }
             }
