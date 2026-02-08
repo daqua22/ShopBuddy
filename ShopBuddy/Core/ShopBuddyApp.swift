@@ -49,17 +49,17 @@ private struct ShopBuddyInventoryCommands: Commands {
             Button("Add Category") {
                 NotificationCenter.default.post(name: .shopBuddyInventoryAddCategoryCommand, object: nil)
             }
-            .keyboardShortcut("n", modifiers: [.command])
+            .keyboardShortcut("n", modifiers: [.command, .shift])
 
             Button("Add Location") {
                 NotificationCenter.default.post(name: .shopBuddyInventoryAddLocationCommand, object: nil)
             }
-            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .keyboardShortcut("n", modifiers: [.command, .option])
 
             Button("Add Item") {
                 NotificationCenter.default.post(name: .shopBuddyInventoryAddItemCommand, object: nil)
             }
-            .keyboardShortcut("n", modifiers: [.command, .option])
+            .keyboardShortcut("n", modifiers: [.command])
 
             Divider()
 
