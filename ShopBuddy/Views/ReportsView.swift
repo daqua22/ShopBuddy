@@ -14,7 +14,11 @@ import AppKit
 struct ReportsView: View {
     @Query(sort: \Employee.name) private var employees: [Employee]
     @Query private var checklists: [ChecklistTemplate]
-    @Query(sort: \InventoryItem.name) private var inventoryItems: [InventoryItem]
+    @Query(
+        filter: #Predicate<InventoryItem> { $0.stockLevel < $0.parLevel },
+        sort: \InventoryItem.name
+    )
+    private var belowParInventoryItems: [InventoryItem]
     @Query(filter: #Predicate<Shift> { $0.clockOutTime != nil })
     private var completedShifts: [Shift]
     
@@ -24,13 +28,12 @@ struct ReportsView: View {
     
     var body: some View {
         let laborMetrics = calculateLaborMetrics()
-        let belowParItems = inventoryItems.filter { $0.isBelowPar }
 
         return Group {
             #if os(macOS)
-            macReportsContent(laborMetrics: laborMetrics, belowParItems: belowParItems)
+            macReportsContent(laborMetrics: laborMetrics, belowParItems: belowParInventoryItems)
             #else
-            iosReportsContent(laborMetrics: laborMetrics, belowParItems: belowParItems)
+            iosReportsContent(laborMetrics: laborMetrics, belowParItems: belowParInventoryItems)
             #endif
         }
         .liquidBackground()

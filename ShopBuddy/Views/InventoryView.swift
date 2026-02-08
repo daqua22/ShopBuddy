@@ -36,11 +36,24 @@ private enum InventoryHiddenItemStore {
         }
         return serialized(from: ids)
     }
+
+    static func pruned(raw: String, validIDs: Set<String>) -> String {
+        let pruned = idSet(from: raw).intersection(validIDs)
+        return serialized(from: pruned)
+    }
 }
 
 private enum InventorySearchMatcher {
     static func matches(query: String, fields: [String]) -> Bool {
-        let queryTokens = tokenize(query)
+        let queryTokens = queryTokenized(query)
+        return matches(queryTokens: queryTokens, fields: fields)
+    }
+
+    static func queryTokenized(_ query: String) -> [String] {
+        tokenize(query)
+    }
+
+    static func matches(queryTokens: [String], fields: [String]) -> Bool {
         guard !queryTokens.isEmpty else { return true }
 
         let fieldTokens = fields.flatMap { tokenize($0) }
@@ -165,6 +178,8 @@ struct InventoryView: View {
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \InventoryCategory.name) private var categories: [InventoryCategory]
+    @Query(sort: \InventoryItem.name) private var allInventoryItems: [InventoryItem]
+    @AppStorage(InventoryHiddenItemStore.storageKey) private var hiddenItemIDsRaw = ""
     
     @State private var showingAddCategory = false
     @State private var newCategoryName = ""
@@ -184,7 +199,8 @@ struct InventoryView: View {
 
     private var filteredCategories: [InventoryCategory] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return categories }
+        let queryTokens = InventorySearchMatcher.queryTokenized(query)
+        guard !queryTokens.isEmpty else { return categories }
 
         return categories.filter { category in
             var fields: [String] = [category.name]
@@ -197,20 +213,21 @@ struct InventoryView: View {
                     }
                 }
             }
-            return InventorySearchMatcher.matches(query: query, fields: fields)
+            return InventorySearchMatcher.matches(queryTokens: queryTokens, fields: fields)
         }
     }
 
     private var itemSearchSuggestions: [InventoryItemSearchResult] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return [] }
+        let queryTokens = InventorySearchMatcher.queryTokenized(query)
+        guard !queryTokens.isEmpty else { return [] }
 
         var suggestions: [InventoryItemSearchResult] = []
         for category in categories {
             let sortedLocations = category.locations.sorted { $0.name < $1.name }
             for location in sortedLocations {
                 let sortedItems = location.items.sorted { $0.name < $1.name }
-                for item in sortedItems where InventorySearchMatcher.matches(query: query, fields: [item.name, item.vendor ?? ""]) {
+                for item in sortedItems where InventorySearchMatcher.matches(queryTokens: queryTokens, fields: [item.name, item.vendor ?? ""]) {
                     suggestions.append(
                         InventoryItemSearchResult(
                             itemID: item.id,
@@ -321,9 +338,13 @@ struct InventoryView: View {
         }
         .onAppear {
             isViewActive = true
+            pruneHiddenItemStorage()
         }
         .onDisappear {
             isViewActive = false
+        }
+        .onChange(of: allInventoryItems.count) { _, _ in
+            pruneHiddenItemStorage()
         }
         .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddCategoryCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
@@ -550,6 +571,14 @@ struct InventoryView: View {
         }
         return nil
     }
+
+    private func pruneHiddenItemStorage() {
+        let validItemIDs = Set(allInventoryItems.map { $0.id.uuidString })
+        let prunedRaw = InventoryHiddenItemStore.pruned(raw: hiddenItemIDsRaw, validIDs: validItemIDs)
+        if prunedRaw != hiddenItemIDsRaw {
+            hiddenItemIDsRaw = prunedRaw
+        }
+    }
 }
 
 // MARK: - Location List
@@ -579,7 +608,8 @@ struct LocationListView: View {
 
     private var filteredLocations: [InventoryLocation] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return locations }
+        let queryTokens = InventorySearchMatcher.queryTokenized(query)
+        guard !queryTokens.isEmpty else { return locations }
 
         return locations.filter { location in
             var fields: [String] = [location.name]
@@ -589,18 +619,19 @@ struct LocationListView: View {
                     fields.append(vendor)
                 }
             }
-            return InventorySearchMatcher.matches(query: query, fields: fields)
+            return InventorySearchMatcher.matches(queryTokens: queryTokens, fields: fields)
         }
     }
 
     private var itemSearchSuggestions: [InventoryItemSearchResult] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return [] }
+        let queryTokens = InventorySearchMatcher.queryTokenized(query)
+        guard !queryTokens.isEmpty else { return [] }
 
         var suggestions: [InventoryItemSearchResult] = []
         for location in locations {
             let sortedItems = location.items.sorted { $0.name < $1.name }
-            for item in sortedItems where InventorySearchMatcher.matches(query: query, fields: [item.name, item.vendor ?? ""]) {
+            for item in sortedItems where InventorySearchMatcher.matches(queryTokens: queryTokens, fields: [item.name, item.vendor ?? ""]) {
                 suggestions.append(
                     InventoryItemSearchResult(
                         itemID: item.id,
@@ -930,6 +961,7 @@ struct ItemListView: View {
     @State private var searchText: String
     @State private var selectedFilter: InventoryItemFilter
     @AppStorage(InventoryHiddenItemStore.storageKey) private var hiddenItemIDsRaw = ""
+    @State private var hiddenItemIDSet = Set<String>()
     @SceneStorage("inventory.selectedItemID") private var selectedItemID: String?
     @FocusState private var isSearchFieldFocused: Bool
     @State private var isViewActive = false
@@ -954,6 +986,7 @@ struct ItemListView: View {
     
     private var filteredItems: [InventoryItem] {
         let term = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let queryTokens = InventorySearchMatcher.queryTokenized(term)
         
         return items.filter { item in
             let hidden = isItemHidden(item)
@@ -971,10 +1004,10 @@ struct ItemListView: View {
             }
             
             guard matchesFilter else { return false }
-            guard !term.isEmpty else { return true }
+            guard !queryTokens.isEmpty else { return true }
             
             return InventorySearchMatcher.matches(
-                query: term,
+                queryTokens: queryTokens,
                 fields: [item.name, item.vendor ?? ""]
             )
         }
@@ -1071,9 +1104,13 @@ struct ItemListView: View {
         }
         .onAppear {
             isViewActive = true
+            syncHiddenItemSet()
         }
         .onDisappear {
             isViewActive = false
+        }
+        .onChange(of: hiddenItemIDsRaw) { _, _ in
+            syncHiddenItemSet()
         }
         .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddItemCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
@@ -1275,9 +1312,10 @@ struct ItemListView: View {
     private func deleteItem(at offsets: IndexSet) {
         let itemsToDelete = offsets.map { filteredItems[$0] }
         for item in itemsToDelete {
-            hiddenItemIDsRaw = InventoryHiddenItemStore.updated(raw: hiddenItemIDsRaw, itemID: item.id, hidden: false)
+            hiddenItemIDSet.remove(item.id.uuidString)
             modelContext.delete(item)
         }
+        persistHiddenItemSet()
         do {
             try modelContext.save()
         } catch {
@@ -1287,7 +1325,8 @@ struct ItemListView: View {
     }
 
     private func deleteItem(_ item: InventoryItem) {
-        hiddenItemIDsRaw = InventoryHiddenItemStore.updated(raw: hiddenItemIDsRaw, itemID: item.id, hidden: false)
+        hiddenItemIDSet.remove(item.id.uuidString)
+        persistHiddenItemSet()
         modelContext.delete(item)
         if selectedItemID == item.id.uuidString {
             selectedItemID = nil
@@ -1349,13 +1388,32 @@ struct ItemListView: View {
     }
 
     private func isItemHidden(_ item: InventoryItem) -> Bool {
-        InventoryHiddenItemStore.contains(itemID: item.id, raw: hiddenItemIDsRaw)
+        hiddenItemIDSet.contains(item.id.uuidString)
     }
 
     private func toggleHidden(for item: InventoryItem) {
         let shouldHide = !isItemHidden(item)
-        hiddenItemIDsRaw = InventoryHiddenItemStore.updated(raw: hiddenItemIDsRaw, itemID: item.id, hidden: shouldHide)
+        if shouldHide {
+            hiddenItemIDSet.insert(item.id.uuidString)
+        } else {
+            hiddenItemIDSet.remove(item.id.uuidString)
+        }
+        persistHiddenItemSet()
         DesignSystem.HapticFeedback.trigger(.selection)
+    }
+
+    private func syncHiddenItemSet() {
+        let parsedSet = InventoryHiddenItemStore.idSet(from: hiddenItemIDsRaw)
+        if parsedSet != hiddenItemIDSet {
+            hiddenItemIDSet = parsedSet
+        }
+    }
+
+    private func persistHiddenItemSet() {
+        let serialized = InventoryHiddenItemStore.serialized(from: hiddenItemIDSet)
+        if serialized != hiddenItemIDsRaw {
+            hiddenItemIDsRaw = serialized
+        }
     }
 }
 
