@@ -1370,6 +1370,27 @@ struct AddInventoryItemView: View {
         return parsedOnHand >= 0
     }
 
+    private var parStepperBinding: Binding<Double> {
+        Binding(
+            get: { max(0, Double(par) ?? 0) },
+            set: { newValue in
+                par = formattedQuantity(newValue)
+                if amountOnHand.isEmpty {
+                    amountOnHand = formattedQuantity(max(0, newValue))
+                }
+            }
+        )
+    }
+
+    private var onHandStepperBinding: Binding<Double> {
+        Binding(
+            get: { max(0, Double(amountOnHand) ?? 0) },
+            set: { newValue in
+                amountOnHand = formattedQuantity(newValue)
+            }
+        )
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -1379,19 +1400,41 @@ struct AddInventoryItemView: View {
                 }
                 
                 Section("Quantities") {
-                    #if os(iOS)
-                    TextField("PAR Level", text: $par)
-                        .keyboardType(.decimalPad)
-                    #else
-                    TextField("PAR Level", text: $par)
-                    #endif
-                    
-                    #if os(iOS)
-                    TextField("Amount on Hand", text: $amountOnHand)
-                        .keyboardType(.decimalPad)
-                    #else
-                    TextField("Amount on Hand", text: $amountOnHand)
-                    #endif
+                    HStack {
+                        Text("PAR Level")
+                        Spacer()
+                        #if os(iOS)
+                        TextField("0", text: $par)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 90)
+                        #else
+                        TextField("0", text: $par)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 90)
+                        #endif
+
+                        Stepper("", value: parStepperBinding, in: 0...10_000, step: 1)
+                            .labelsHidden()
+                    }
+
+                    HStack {
+                        Text("Amount on Hand")
+                        Spacer()
+                        #if os(iOS)
+                        TextField("0", text: $amountOnHand)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 90)
+                        #else
+                        TextField("0", text: $amountOnHand)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 90)
+                        #endif
+
+                        Stepper("", value: onHandStepperBinding, in: 0...10_000, step: 1)
+                            .labelsHidden()
+                    }
                     
                     Picker("Unit", selection: $selectedUnit) {
                         ForEach(UnitType.allCases, id: \.self) { unit in
@@ -1437,6 +1480,13 @@ struct AddInventoryItemView: View {
                 }
             }
         }
+    }
+
+    private func formattedQuantity(_ value: Double) -> String {
+        if value.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.0f", value)
+        }
+        return String(format: "%.1f", value)
     }
 }
 
@@ -1733,7 +1783,14 @@ struct ItemSettingsSheet: View {
     
     private var isValid: Bool {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmedName.isEmpty && Double(stockLevel) != nil && Double(parLevel) != nil
+        guard
+            !trimmedName.isEmpty,
+            let stock = Double(stockLevel),
+            let par = Double(parLevel)
+        else {
+            return false
+        }
+        return stock >= 0 && par >= 0
     }
     
     init(item: InventoryItem) {
@@ -1750,6 +1807,20 @@ struct ItemSettingsSheet: View {
     
     private var availableLocations: [InventoryLocation] {
         selectedCategory?.locations.sorted(by: { $0.name < $1.name }) ?? []
+    }
+
+    private var stockLevelStepperBinding: Binding<Double> {
+        Binding(
+            get: { max(0, Double(stockLevel) ?? 0) },
+            set: { stockLevel = formattedQuantity($0) }
+        )
+    }
+
+    private var parLevelStepperBinding: Binding<Double> {
+        Binding(
+            get: { max(0, Double(parLevel) ?? 0) },
+            set: { parLevel = formattedQuantity($0) }
+        )
     }
 
     private var isHiddenBinding: Binding<Bool> {
@@ -1786,6 +1857,8 @@ struct ItemSettingsSheet: View {
                             .keyboardType(.decimalPad)
                             #endif
                             .frame(width: 80)
+                        Stepper("", value: stockLevelStepperBinding, in: 0...10_000, step: 1)
+                            .labelsHidden()
                     }
                     
                     HStack {
@@ -1797,6 +1870,8 @@ struct ItemSettingsSheet: View {
                             .keyboardType(.decimalPad)
                             #endif
                             .frame(width: 80)
+                        Stepper("", value: parLevelStepperBinding, in: 0...10_000, step: 1)
+                            .labelsHidden()
                     }
                     
                     Picker("Unit", selection: $selectedUnit) {
@@ -1922,5 +1997,12 @@ struct ItemSettingsSheet: View {
             print("Failed to delete item: \(error)")
             DesignSystem.HapticFeedback.trigger(.error)
         }
+    }
+
+    private func formattedQuantity(_ value: Double) -> String {
+        if value.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.0f", value)
+        }
+        return String(format: "%.1f", value)
     }
 }
