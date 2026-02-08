@@ -794,6 +794,7 @@ private struct MacCategoryItemDetailView: View {
     @State private var showingLocationPicker = false
     @State private var showingAddItemSheet = false
     @State private var addItemLocationID: String?
+    @State private var selectedLocationFilterID: String?
     @State private var isViewActive = false
 
     private var locations: [InventoryLocation] {
@@ -811,12 +812,17 @@ private struct MacCategoryItemDetailView: View {
         return records
     }
 
+    private var filteredByLocationRecords: [MacCategoryItemRecord] {
+        guard let selectedLocationFilterID else { return allItemRecords }
+        return allItemRecords.filter { $0.location.id.uuidString == selectedLocationFilterID }
+    }
+
     private var filteredRecords: [MacCategoryItemRecord] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let queryTokens = InventorySearchMatcher.queryTokenized(query)
-        guard !queryTokens.isEmpty else { return allItemRecords }
+        guard !queryTokens.isEmpty else { return filteredByLocationRecords }
 
-        return allItemRecords.filter { record in
+        return filteredByLocationRecords.filter { record in
             InventorySearchMatcher.matches(
                 queryTokens: queryTokens,
                 fields: [
@@ -835,6 +841,11 @@ private struct MacCategoryItemDetailView: View {
                 partialResult += 1
             }
         }
+    }
+
+    private var selectedLocationFilter: InventoryLocation? {
+        guard let selectedLocationFilterID else { return nil }
+        return locations.first(where: { $0.id.uuidString == selectedLocationFilterID })
     }
 
     private var selectedAddLocation: InventoryLocation? {
@@ -930,6 +941,12 @@ private struct MacCategoryItemDetailView: View {
         .onChange(of: allItemRecords.map { $0.item.id }) { _, _ in
             normalizeSelection()
         }
+        .onChange(of: locations.map { $0.id.uuidString }) { _, _ in
+            normalizeLocationFilter()
+        }
+        .onChange(of: selectedItemID) { _, _ in
+            revealSelectedItemIfNeeded()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddItemCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
             presentAddItemFlow()
@@ -974,6 +991,38 @@ private struct MacCategoryItemDetailView: View {
                     Capsule()
                         .fill(DesignSystem.Colors.surface.opacity(0.8))
                 )
+
+            Divider().frame(height: 24)
+
+            Menu {
+                Button("All Locations") {
+                    selectedLocationFilterID = nil
+                }
+
+                if !locations.isEmpty {
+                    Divider()
+                    ForEach(locations) { location in
+                        Button("\(location.emoji) \(location.name)") {
+                            selectedLocationFilterID = location.id.uuidString
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "list.bullet.indent")
+                    Text(selectedLocationFilter.map { "\($0.emoji) \($0.name)" } ?? "All Locations")
+                        .lineLimit(1)
+                }
+                .font(DesignSystem.Typography.caption)
+                .foregroundColor(DesignSystem.Colors.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(DesignSystem.Colors.surface.opacity(0.8))
+                )
+            }
+            .menuStyle(.borderlessButton)
         }
         .padding(.horizontal, DesignSystem.Spacing.grid_2)
         .padding(.top, DesignSystem.Spacing.grid_1)
@@ -1096,7 +1145,10 @@ private struct MacCategoryItemDetailView: View {
             return
         }
 
-        if addItemLocationID == nil || selectedAddLocation == nil {
+        if let selectedLocationFilterID,
+           locations.contains(where: { $0.id.uuidString == selectedLocationFilterID }) {
+            addItemLocationID = selectedLocationFilterID
+        } else if addItemLocationID == nil || selectedAddLocation == nil {
             addItemLocationID = locations[0].id.uuidString
         }
         showingLocationPicker = true
@@ -1108,6 +1160,26 @@ private struct MacCategoryItemDetailView: View {
         if !exists {
             self.selectedItemID = nil
         }
+    }
+
+    private func normalizeLocationFilter() {
+        guard let selectedLocationFilterID else { return }
+        let exists = locations.contains(where: { $0.id.uuidString == selectedLocationFilterID })
+        if !exists {
+            self.selectedLocationFilterID = nil
+        }
+    }
+
+    private func revealSelectedItemIfNeeded() {
+        guard
+            let selectedItemID,
+            let selectedRecord = allItemRecords.first(where: { $0.item.id.uuidString == selectedItemID }),
+            let selectedLocationFilterID,
+            selectedRecord.location.id.uuidString != selectedLocationFilterID
+        else {
+            return
+        }
+        self.selectedLocationFilterID = nil
     }
 
     private func deleteSelectedItem() {
