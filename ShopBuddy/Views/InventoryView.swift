@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Combine
 
 private enum InventoryItemFilter: String, CaseIterable, Identifiable {
     case visible = "Visible"
@@ -173,6 +174,7 @@ struct InventoryView: View {
     @State private var selectedItemDestination: InventoryItemSearchResult?
     @SceneStorage("inventory.selectedCategoryID") private var selectedCategoryID: String?
     @FocusState private var isSearchFieldFocused: Bool
+    @State private var isViewActive = false
 
     private var totalCategoryItemCount: Int {
         categories.reduce(into: 0) { partialResult, category in
@@ -316,6 +318,24 @@ struct InventoryView: View {
             } else {
                 ContentUnavailableView("Item Not Found", systemImage: "shippingbox")
             }
+        }
+        .onAppear {
+            isViewActive = true
+        }
+        .onDisappear {
+            isViewActive = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddCategoryCommand)) { _ in
+            guard isViewActive, coordinator.isManager else { return }
+            showingAddCategory = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryFocusSearchCommand)) { _ in
+            guard isViewActive else { return }
+            isSearchFieldFocused = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryDeleteSelectionCommand)) { _ in
+            guard isViewActive, coordinator.isManager else { return }
+            deleteSelectedCategory()
         }
         #if os(macOS)
         .onDeleteCommand {
@@ -543,6 +563,9 @@ struct LocationListView: View {
     @State private var editingLocation: InventoryLocation?
     @State private var searchText = ""
     @State private var selectedItemDestination: InventoryItemSearchResult?
+    @SceneStorage("inventory.selectedLocationID") private var selectedLocationID: String?
+    @FocusState private var isSearchFieldFocused: Bool
+    @State private var isViewActive = false
     
     private var locations: [InventoryLocation] {
         category.locations.sorted { $0.name < $1.name }
@@ -619,11 +642,25 @@ struct LocationListView: View {
         .searchable(text: $searchText, prompt: "Search subcategories or items") {
             locationSearchSuggestions
         }
+        .searchFocused($isSearchFieldFocused)
 #endif
         .toolbar {
             if coordinator.isManager {
                 Button { showingAddLocation = true } label: { Image(systemName: "plus") }
+                    #if os(macOS)
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .help("Add Location (\u{2318}\u{21E7}N)")
+                    #endif
             }
+            #if os(macOS)
+            Button {
+                isSearchFieldFocused = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .keyboardShortcut("f", modifiers: [.command])
+            .help("Focus Search (\u{2318}F)")
+            #endif
         }
         .sheet(isPresented: $showingAddLocation) {
             AddLocationSheet(locationName: $newLocationName, locationEmoji: $newLocationEmoji) {
@@ -661,41 +698,101 @@ struct LocationListView: View {
                 ContentUnavailableView("Item Not Found", systemImage: "shippingbox")
             }
         }
+        .onAppear {
+            isViewActive = true
+        }
+        .onDisappear {
+            isViewActive = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddLocationCommand)) { _ in
+            guard isViewActive, coordinator.isManager else { return }
+            showingAddLocation = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryFocusSearchCommand)) { _ in
+            guard isViewActive else { return }
+            isSearchFieldFocused = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryDeleteSelectionCommand)) { _ in
+            guard isViewActive, coordinator.isManager else { return }
+            deleteSelectedLocation()
+        }
+        #if os(macOS)
+        .onDeleteCommand {
+            guard coordinator.isManager else { return }
+            deleteSelectedLocation()
+        }
+        #endif
     }
 
     private var locationList: some View {
-        List {
-            if filteredLocations.isEmpty {
-                ContentUnavailableView(
-                    searchText.isEmpty ? "No Locations" : "No Search Results",
-                    systemImage: searchText.isEmpty ? "mappin.and.ellipse" : "magnifyingglass",
-                    description: Text(searchText.isEmpty ? "Add locations like 'Bar Fridge' to this category" : "No location or item matches that search.")
-                )
+        Group {
+            #if os(macOS)
+            List(selection: $selectedLocationID) {
+                locationRows
             }
-            
-            ForEach(filteredLocations) { location in
-                NavigationLink {
-                    ItemListView(location: location)
-                } label: {
-                    HStack(spacing: 12) {
-                        Text(location.emoji)
-                            .font(.system(size: 28))
-                            .onLongPressGesture {
-                                if coordinator.isManager {
-                                    editingLocation = location
-                                }
-                            }
-                        
-                        Text(location.name)
-                    }
-                }
+            #else
+            List {
+                locationRows
             }
-            .if(coordinator.isManager) { view in
-                view.onDelete(perform: deleteLocation)
-            }
+            #endif
         }
         .liquidListChrome()
         .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.38))
+    }
+
+    @ViewBuilder
+    private var locationRows: some View {
+        if filteredLocations.isEmpty {
+            ContentUnavailableView(
+                searchText.isEmpty ? "No Locations" : "No Search Results",
+                systemImage: searchText.isEmpty ? "mappin.and.ellipse" : "magnifyingglass",
+                description: Text(searchText.isEmpty ? "Add locations like 'Bar Fridge' to this category" : "No location or item matches that search.")
+            )
+        }
+        
+        ForEach(filteredLocations) { location in
+            NavigationLink {
+                ItemListView(location: location)
+            } label: {
+                HStack(spacing: 12) {
+                    Text(location.emoji)
+                        .font(.system(size: 28))
+                        .onLongPressGesture {
+                            if coordinator.isManager {
+                                editingLocation = location
+                            }
+                        }
+                    
+                    Text(location.name)
+                }
+            }
+            .if(coordinator.isManager) { view in
+                view.contextMenu {
+                    Button {
+                        editingLocation = location
+                    } label: {
+                        Label("Edit Icon", systemImage: "pencil")
+                    }
+                    Button {
+                        duplicateLocation(location)
+                    } label: {
+                        Label("Duplicate Location", systemImage: "plus.square.on.square")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        deleteLocation(location)
+                    } label: {
+                        Label("Delete Location", systemImage: "trash")
+                    }
+                }
+            }
+            #if os(macOS)
+            .tag(location.id.uuidString)
+            #endif
+        }
+        .if(coordinator.isManager) { view in
+            view.onDelete(perform: deleteLocation)
+        }
     }
 
     #if os(macOS)
@@ -752,6 +849,9 @@ struct LocationListView: View {
         let locationsToDelete = offsets.map { filteredLocations[$0] }
         for location in locationsToDelete {
             modelContext.delete(location)
+            if selectedLocationID == location.id.uuidString {
+                selectedLocationID = nil
+            }
         }
         do {
             try modelContext.save()
@@ -759,6 +859,59 @@ struct LocationListView: View {
             print("Failed to delete location: \(error)")
             DesignSystem.HapticFeedback.trigger(.error)
         }
+    }
+
+    private func deleteLocation(_ location: InventoryLocation) {
+        modelContext.delete(location)
+        if selectedLocationID == location.id.uuidString {
+            selectedLocationID = nil
+        }
+        do {
+            try modelContext.save()
+            DesignSystem.HapticFeedback.trigger(.success)
+        } catch {
+            print("Failed to delete location: \(error)")
+            DesignSystem.HapticFeedback.trigger(.error)
+        }
+    }
+
+    private func deleteSelectedLocation() {
+        guard
+            let selectedLocationID,
+            let location = locations.first(where: { $0.id.uuidString == selectedLocationID })
+        else {
+            return
+        }
+        deleteLocation(location)
+    }
+
+    private func duplicateLocation(_ location: InventoryLocation) {
+        let existingNames = Set(locations.map(\.name))
+        let duplicatedName = uniqueName(base: location.name, existingNames: existingNames)
+        let duplicate = InventoryLocation(name: duplicatedName, emoji: location.emoji)
+        duplicate.category = category
+        modelContext.insert(duplicate)
+        do {
+            try modelContext.save()
+            DesignSystem.HapticFeedback.trigger(.success)
+        } catch {
+            print("Failed to duplicate location: \(error)")
+            DesignSystem.HapticFeedback.trigger(.error)
+        }
+    }
+
+    private func uniqueName(base: String, existingNames: Set<String>) -> String {
+        let trimmedBase = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultName = trimmedBase.isEmpty ? "Untitled" : trimmedBase
+        if !existingNames.contains(defaultName) {
+            return defaultName
+        }
+
+        var index = 2
+        while existingNames.contains("\(defaultName) \(index)") {
+            index += 1
+        }
+        return "\(defaultName) \(index)"
     }
 
     private func location(for locationID: UUID) -> InventoryLocation? {
@@ -779,6 +932,7 @@ struct ItemListView: View {
     @AppStorage(InventoryHiddenItemStore.storageKey) private var hiddenItemIDsRaw = ""
     @SceneStorage("inventory.selectedItemID") private var selectedItemID: String?
     @FocusState private var isSearchFieldFocused: Bool
+    @State private var isViewActive = false
 
     init(location: InventoryLocation, initialSearchText: String = "", showAllForSearch: Bool = false) {
         self.location = location
@@ -914,6 +1068,24 @@ struct ItemListView: View {
         }
         .sheet(item: $editingAmountOnHandItem) { item in
             AmountOnHandEditorSheet(item: item)
+        }
+        .onAppear {
+            isViewActive = true
+        }
+        .onDisappear {
+            isViewActive = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddItemCommand)) { _ in
+            guard isViewActive, coordinator.isManager else { return }
+            showingAddItem = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryFocusSearchCommand)) { _ in
+            guard isViewActive else { return }
+            isSearchFieldFocused = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryDeleteSelectionCommand)) { _ in
+            guard isViewActive, coordinator.isManager else { return }
+            deleteSelectedItem()
         }
         #if os(macOS)
         .onDeleteCommand {

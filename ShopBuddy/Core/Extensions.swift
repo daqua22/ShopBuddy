@@ -7,6 +7,57 @@
 
 import Foundation
 import SwiftUI
+import CoreImage
+import CoreImage.CIFilterBuiltins
+
+// MARK: - App Commands
+extension Notification.Name {
+    static let shopBuddyInventoryAddCategoryCommand = Notification.Name("shopbuddy.inventory.addCategory")
+    static let shopBuddyInventoryAddLocationCommand = Notification.Name("shopbuddy.inventory.addLocation")
+    static let shopBuddyInventoryAddItemCommand = Notification.Name("shopbuddy.inventory.addItem")
+    static let shopBuddyInventoryFocusSearchCommand = Notification.Name("shopbuddy.inventory.focusSearch")
+    static let shopBuddyInventoryDeleteSelectionCommand = Notification.Name("shopbuddy.inventory.deleteSelection")
+}
+
+private enum Formatters {
+    static let time: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    static let date: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter
+    }()
+
+    static let dateTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    static let shortDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M/d"
+        return formatter
+    }()
+
+    static let dayOfWeek: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE"
+        return formatter
+    }()
+
+    static let currency: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = Locale.current
+        return formatter
+    }()
+}
 
 // MARK: - Date Extensions
 extension Date {
@@ -49,38 +100,27 @@ extension Date {
     
     /// Format as time string (e.g., "2:30 PM")
     func timeString() -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: self)
+        Formatters.time.string(from: self)
     }
     
     /// Format as date string (e.g., "Jan 15, 2026")
     func dateString() -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        return formatter.string(from: self)
+        Formatters.date.string(from: self)
     }
     
     /// Format as full date-time string
     func dateTimeString() -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: self)
+        Formatters.dateTime.string(from: self)
     }
     
     /// Format as short date (e.g., "1/15")
     func shortDateString() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "M/d"
-        return formatter.string(from: self)
+        Formatters.shortDate.string(from: self)
     }
     
     /// Get day of week name
     func dayOfWeekString() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE"
-        return formatter.string(from: self)
+        Formatters.dayOfWeek.string(from: self)
     }
 }
 
@@ -89,10 +129,7 @@ extension Double {
     
     /// Format as currency string
     func currencyString() -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.locale = Locale.current
-        return formatter.string(from: NSNumber(value: self)) ?? "$\(String(format: "%.2f", self))"
+        Formatters.currency.string(from: NSNumber(value: self)) ?? "$\(String(format: "%.2f", self))"
     }
     
     /// Format as hours string (e.g., "8.5h")
@@ -111,16 +148,41 @@ extension String {
     
     /// Validate PIN format (4 digits)
     var isValidPIN: Bool {
-        let pattern = "^[0-9]{4}$"
-        let regex = try? NSRegularExpression(pattern: pattern)
-        let range = NSRange(location: 0, length: self.utf16.count)
-        return regex?.firstMatch(in: self, range: range) != nil
+        count == 4 && allSatisfy(\.isNumber)
     }
     
     /// Capitalize first letter
     var capitalizedFirst: String {
         guard !isEmpty else { return self }
         return prefix(1).uppercased() + dropFirst()
+    }
+}
+
+// MARK: - PIN Dot Indicator
+struct PINDotIndicator: View {
+    let enteredCount: Int
+    var totalCount: Int = 4
+
+    var body: some View {
+        HStack(spacing: DesignSystem.Spacing.grid_2) {
+            ForEach(0..<totalCount, id: \.self) { index in
+                ZStack {
+                    Circle()
+                        .fill(index < enteredCount ? DesignSystem.Colors.accent : DesignSystem.Colors.surface)
+                        .frame(width: 24, height: 24)
+                    Circle()
+                        .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 2)
+                    if index < enteredCount {
+                        Circle()
+                            .fill(DesignSystem.Colors.primary.opacity(0.95))
+                            .frame(width: 8, height: 8)
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("PIN entry")
+        .accessibilityValue("\(enteredCount) of \(totalCount) digits entered")
     }
 }
 
@@ -142,7 +204,157 @@ extension View {
             self
         }
     }
+
+    /// Constrain content width for readable layouts on larger devices (iPad/landscape).
+    func readableContent(maxWidth: CGFloat = 760) -> some View {
+        frame(maxWidth: maxWidth)
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// Apply the shared liquid backdrop.
+    func liquidBackground() -> some View {
+        background(DesignSystem.LiquidBackdrop().ignoresSafeArea())
+    }
+
+    /// Apply list chrome for the liquid style.
+    func liquidListChrome() -> some View {
+        #if os(macOS)
+        return AnyView(
+            scrollContentBackground(.hidden)
+                .background(DesignSystem.LiquidBackdrop().ignoresSafeArea())
+                .listRowSeparatorTint(DesignSystem.Colors.glassStroke.opacity(0.45))
+                .contentMargins(.top, DesignSystem.Spacing.grid_1, for: .scrollContent)
+                .contentMargins(.horizontal, DesignSystem.Spacing.grid_1, for: .scrollContent)
+                .safeAreaPadding(.horizontal, DesignSystem.Spacing.grid_1)
+                .safeAreaPadding(.vertical, DesignSystem.Spacing.grid_1)
+                .environment(\.defaultMinListRowHeight, 42)
+        )
+        #else
+        return AnyView(
+            scrollContentBackground(.hidden)
+                .background(DesignSystem.LiquidBackdrop().ignoresSafeArea())
+                .listRowSeparatorTint(DesignSystem.Colors.glassStroke.opacity(0.45))
+                .contentMargins(.top, DesignSystem.Spacing.grid_1, for: .scrollContent)
+        )
+        #endif
+    }
+
+    /// Apply form chrome for consistent modal/detail editing experiences.
+    func liquidFormChrome() -> some View {
+        #if os(macOS)
+        return AnyView(
+            scrollContentBackground(.hidden)
+                .background(DesignSystem.LiquidBackdrop().ignoresSafeArea())
+                .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.34))
+                .listRowSeparatorTint(DesignSystem.Colors.glassStroke.opacity(0.45))
+                .contentMargins(.top, DesignSystem.Spacing.grid_1, for: .scrollContent)
+                .contentMargins(.horizontal, DesignSystem.Spacing.grid_1, for: .scrollContent)
+                .safeAreaPadding(.horizontal, DesignSystem.Spacing.grid_2)
+                .safeAreaPadding(.vertical, DesignSystem.Spacing.grid_1)
+                .environment(\.defaultMinListRowHeight, 42)
+        )
+        #else
+        return AnyView(
+            scrollContentBackground(.hidden)
+                .background(DesignSystem.LiquidBackdrop().ignoresSafeArea())
+                .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.34))
+                .listRowSeparatorTint(DesignSystem.Colors.glassStroke.opacity(0.45))
+                .contentMargins(.top, DesignSystem.Spacing.grid_1, for: .scrollContent)
+        )
+        #endif
+    }
 }
+
+#if os(macOS)
+/// Resizes a sheet to a percentage of its parent window so it adapts between
+/// regular windowed mode and fullscreen mode.
+struct MacAdaptiveSheetSizer: NSViewRepresentable {
+    let widthRatio: CGFloat
+    let heightRatio: CGFloat
+    let minWidth: CGFloat
+    let minHeight: CGFloat
+    let maxWidth: CGFloat
+    let maxHeight: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            context.coordinator.bind(view: view, config: self)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            context.coordinator.bind(view: nsView, config: self)
+        }
+    }
+
+    final class Coordinator {
+        private weak var sheetWindow: NSWindow?
+        private weak var parentWindow: NSWindow?
+        private var resizeObserver: NSObjectProtocol?
+
+        deinit {
+            if let resizeObserver {
+                NotificationCenter.default.removeObserver(resizeObserver)
+            }
+        }
+
+        func bind(view: NSView, config: MacAdaptiveSheetSizer) {
+            guard let sheet = view.window else { return }
+            sheetWindow = sheet
+
+            let currentParent = sheet.sheetParent
+            if parentWindow !== currentParent {
+                if let resizeObserver {
+                    NotificationCenter.default.removeObserver(resizeObserver)
+                    self.resizeObserver = nil
+                }
+                parentWindow = currentParent
+
+                if let parent = currentParent {
+                    resizeObserver = NotificationCenter.default.addObserver(
+                        forName: NSWindow.didResizeNotification,
+                        object: parent,
+                        queue: .main
+                    ) { [weak self] _ in
+                        self?.apply(config: config)
+                    }
+                }
+            }
+
+            apply(config: config)
+        }
+
+        private func apply(config: MacAdaptiveSheetSizer) {
+            guard let sheet = sheetWindow else { return }
+
+            let referenceSize: CGSize
+            if let parent = parentWindow {
+                referenceSize = parent.contentLayoutRect.size
+            } else if let screenSize = sheet.screen?.visibleFrame.size {
+                referenceSize = screenSize
+            } else {
+                return
+            }
+
+            let targetWidth = min(max(referenceSize.width * config.widthRatio, config.minWidth), config.maxWidth)
+            let targetHeight = min(max(referenceSize.height * config.heightRatio, config.minHeight), config.maxHeight)
+            let targetSize = NSSize(width: targetWidth, height: targetHeight)
+
+            sheet.minSize = NSSize(width: config.minWidth, height: config.minHeight)
+            if abs(sheet.frame.width - targetSize.width) > 1 || abs(sheet.frame.height - targetSize.height) > 1 {
+                sheet.setContentSize(targetSize)
+            }
+        }
+    }
+}
+#endif
 
 // MARK: - Color Extensions
 extension Color {
@@ -156,6 +368,46 @@ extension Color {
         } else {
             return DesignSystem.Colors.error
         }
+    }
+}
+
+// MARK: - QR Renderer
+final class QRCodeRenderer {
+    static let shared = QRCodeRenderer()
+
+    private let context = CIContext(options: [CIContextOption.useSoftwareRenderer: false])
+    private let cache = NSCache<NSString, CachedCGImage>()
+
+    private init() {
+        cache.countLimit = 256
+    }
+
+    func makeImage(from payload: String, scale: CGFloat = 10) -> Image? {
+        let cacheKey = "\(payload)|\(scale)" as NSString
+        if let cached = cache.object(forKey: cacheKey) {
+            return Image(decorative: cached.image, scale: 1)
+        }
+
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(payload.utf8)
+        filter.correctionLevel = "M"
+
+        guard let outputImage = filter.outputImage else { return nil }
+        let transformed = outputImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        guard let cgImage = context.createCGImage(transformed, from: transformed.extent) else {
+            return nil
+        }
+
+        cache.setObject(CachedCGImage(cgImage), forKey: cacheKey)
+        return Image(decorative: cgImage, scale: 1)
+    }
+}
+
+private final class CachedCGImage {
+    let image: CGImage
+
+    init(_ image: CGImage) {
+        self.image = image
     }
 }
 
