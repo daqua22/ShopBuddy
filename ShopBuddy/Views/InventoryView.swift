@@ -164,6 +164,7 @@ private enum InventorySearchMatcher {
 
 private struct InventoryItemSearchResult: Identifiable, Hashable {
     let itemID: UUID
+    let categoryID: UUID
     let itemName: String
     let categoryName: String
     let categoryEmoji: String
@@ -187,6 +188,7 @@ struct InventoryView: View {
     @State private var editingCategory: InventoryCategory?
     @State private var searchText = ""
     @State private var selectedItemDestination: InventoryItemSearchResult?
+    @State private var selectedMacItemID: String?
     @SceneStorage("inventory.selectedCategoryID") private var selectedCategoryID: String?
     @FocusState private var isSearchFieldFocused: Bool
     @State private var isViewActive = false
@@ -195,6 +197,11 @@ struct InventoryView: View {
         categories.reduce(into: 0) { partialResult, category in
             partialResult += category.totalItemCount
         }
+    }
+
+    private var selectedCategory: InventoryCategory? {
+        guard let selectedCategoryID else { return nil }
+        return categories.first(where: { $0.id.uuidString == selectedCategoryID })
     }
 
     private var filteredCategories: [InventoryCategory] {
@@ -231,6 +238,7 @@ struct InventoryView: View {
                     suggestions.append(
                         InventoryItemSearchResult(
                             itemID: item.id,
+                            categoryID: category.id,
                             itemName: item.name,
                             categoryName: category.name,
                             categoryEmoji: category.emoji,
@@ -249,14 +257,7 @@ struct InventoryView: View {
     var body: some View {
         Group {
             #if os(macOS)
-            VStack(spacing: 0) {
-                inventoryHeader
-
-                Divider()
-                    .overlay(DesignSystem.Colors.glassStroke.opacity(0.45))
-
-                inventoryList
-            }
+            macInventorySplitView
             #else
             inventoryList
             #endif
@@ -280,17 +281,35 @@ struct InventoryView: View {
                 }
             }
 #endif
-            ToolbarItem(placement: .primaryAction) {
-                if coordinator.isManager {
-                    Button { showingAddCategory = true } label: { Image(systemName: "plus") }
-                        #if os(macOS)
-                        .keyboardShortcut("n", modifiers: [.command])
-                        .help("Add Category (\u{2318}N)")
-                        #endif
-                }
-            }
             #if os(macOS)
-            ToolbarItem(placement: .automatic) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if coordinator.isManager {
+                    Button {
+                        showingAddCategory = true
+                    } label: {
+                        Image(systemName: "folder.badge.plus")
+                    }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .help("Add Category (\u{2318}\u{21E7}N)")
+
+                    Button {
+                        NotificationCenter.default.post(name: .shopBuddyInventoryAddItemCommand, object: nil)
+                    } label: {
+                        Image(systemName: "shippingbox.badge.plus")
+                    }
+                    .keyboardShortcut("n", modifiers: [.command])
+                    .help("Add Item (\u{2318}N)")
+                    .disabled(selectedCategory == nil)
+
+                    Button {
+                        NotificationCenter.default.post(name: .shopBuddyInventoryDeleteSelectionCommand, object: nil)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .keyboardShortcut(.delete, modifiers: [])
+                    .help("Delete Selection (\u{232B})")
+                }
+
                 Button {
                     isSearchFieldFocused = true
                 } label: {
@@ -298,6 +317,12 @@ struct InventoryView: View {
                 }
                 .keyboardShortcut("f", modifiers: [.command])
                 .help("Focus Search (\u{2318}F)")
+            }
+            #else
+            ToolbarItem(placement: .primaryAction) {
+                if coordinator.isManager {
+                    Button { showingAddCategory = true } label: { Image(systemName: "plus") }
+                }
             }
             #endif
         }
@@ -307,7 +332,9 @@ struct InventoryView: View {
                 guard !trimmedName.isEmpty else { return }
 
                 let cat = InventoryCategory(name: trimmedName, emoji: newCategoryEmoji)
-                modelContext.insert(cat)
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    modelContext.insert(cat)
+                }
                 newCategoryName = ""
                 newCategoryEmoji = "📦"
                 do {
@@ -339,12 +366,19 @@ struct InventoryView: View {
         .onAppear {
             isViewActive = true
             pruneHiddenItemStorage()
+            normalizeCategorySelectionIfNeeded()
         }
         .onDisappear {
             isViewActive = false
         }
+        .onChange(of: categories.count) { _, _ in
+            normalizeCategorySelectionIfNeeded()
+        }
         .onChange(of: allInventoryItems.count) { _, _ in
             pruneHiddenItemStorage()
+        }
+        .onChange(of: selectedCategoryID) { _, _ in
+            selectedMacItemID = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddCategoryCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
@@ -356,15 +390,147 @@ struct InventoryView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryDeleteSelectionCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
+            #if os(macOS)
+            guard selectedMacItemID == nil else { return }
+            #endif
             deleteSelectedCategory()
         }
         #if os(macOS)
         .onDeleteCommand {
             guard coordinator.isManager else { return }
+            guard selectedMacItemID == nil else { return }
             deleteSelectedCategory()
         }
         #endif
     }
+
+    #if os(macOS)
+    private var macInventorySplitView: some View {
+        NavigationSplitView {
+            VStack(spacing: 0) {
+                inventoryHeader
+
+                Divider()
+                    .overlay(DesignSystem.Colors.glassStroke.opacity(0.45))
+
+                List(selection: $selectedCategoryID) {
+                    macCategoryRows
+                }
+                .listStyle(.sidebar)
+                .liquidListChrome()
+                .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.38))
+            }
+            .navigationSplitViewColumnWidth(min: 240, ideal: 290)
+        } detail: {
+            if let selectedCategory {
+                MacCategoryItemDetailView(
+                    category: selectedCategory,
+                    searchText: $searchText,
+                    selectedItemID: $selectedMacItemID
+                )
+            } else {
+                ContentUnavailableView {
+                    Label("No Category Selected", systemImage: "square.grid.2x2")
+                } description: {
+                    Text("Pick a category from the sidebar to manage inventory items.")
+                } actions: {
+                    if coordinator.isManager {
+                        Button("Add Category") {
+                            showingAddCategory = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .liquidBackground()
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    @ViewBuilder
+    private var macCategoryRows: some View {
+        if filteredCategories.isEmpty {
+            ContentUnavailableView {
+                Label(
+                    searchText.isEmpty ? "No Categories" : "No Search Results",
+                    systemImage: searchText.isEmpty ? "folder.badge.plus" : "magnifyingglass"
+                )
+            } description: {
+                Text(
+                    searchText.isEmpty
+                        ? "Create your first category to start organizing items."
+                        : "No category, location, or item matches that search."
+                )
+            } actions: {
+                if searchText.isEmpty {
+                    if coordinator.isManager {
+                        Button("Add Category") {
+                            showingAddCategory = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    Button("Clear Search") {
+                        searchText = ""
+                    }
+                }
+            }
+        }
+
+        ForEach(filteredCategories) { category in
+            HStack(spacing: 10) {
+                Text(category.emoji)
+                    .font(.system(size: 24))
+                    .onLongPressGesture {
+                        if coordinator.isManager {
+                            editingCategory = category
+                        }
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(category.name)
+                        .font(DesignSystem.Typography.headline)
+                        .foregroundColor(DesignSystem.Colors.primary)
+                    Text("\(category.locationCount) locations")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundColor(DesignSystem.Colors.secondary)
+                }
+
+                Spacer(minLength: 10)
+
+                Text("\(category.totalItemCount)")
+                    .font(DesignSystem.Typography.caption)
+                    .monospacedDigit()
+                    .foregroundColor(DesignSystem.Colors.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(DesignSystem.Colors.surface.opacity(0.8))
+                    )
+            }
+            .padding(.vertical, 6)
+            .tag(category.id.uuidString)
+            .if(coordinator.isManager) { view in
+                view.contextMenu {
+                    Button("Edit Category", systemImage: "pencil") {
+                        editingCategory = category
+                    }
+                    Divider()
+                    Button("Delete Category", systemImage: "trash", role: .destructive) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            deleteCategory(category)
+                        }
+                    }
+                }
+            }
+        }
+        .if(coordinator.isManager) { view in
+            view.onDelete(perform: deleteCategory)
+        }
+    }
+    #endif
 
     private var inventoryList: some View {
         Group {
@@ -485,7 +651,12 @@ struct InventoryView: View {
         ForEach(itemSearchSuggestions) { result in
             Button {
                 searchText = result.itemName
+                #if os(macOS)
+                selectedCategoryID = result.categoryID.uuidString
+                selectedMacItemID = result.itemID.uuidString
+                #else
                 selectedItemDestination = result
+                #endif
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(result.itemName)
@@ -499,8 +670,10 @@ struct InventoryView: View {
     
     private func deleteCategory(at offsets: IndexSet) {
         let categoriesToDelete = offsets.map { filteredCategories[$0] }
-        for category in categoriesToDelete {
-            modelContext.delete(category)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            for category in categoriesToDelete {
+                modelContext.delete(category)
+            }
         }
         do {
             try modelContext.save()
@@ -511,7 +684,9 @@ struct InventoryView: View {
     }
 
     private func deleteCategory(_ category: InventoryCategory) {
-        modelContext.delete(category)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            modelContext.delete(category)
+        }
         if selectedCategoryID == category.id.uuidString {
             selectedCategoryID = nil
         }
@@ -538,7 +713,9 @@ struct InventoryView: View {
         let existingNames = Set(categories.map(\.name))
         let duplicatedName = uniqueName(base: category.name, existingNames: existingNames)
         let duplicate = InventoryCategory(name: duplicatedName, emoji: category.emoji)
-        modelContext.insert(duplicate)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            modelContext.insert(duplicate)
+        }
 
         do {
             try modelContext.save()
@@ -579,7 +756,394 @@ struct InventoryView: View {
             hiddenItemIDsRaw = prunedRaw
         }
     }
+
+    private func normalizeCategorySelectionIfNeeded() {
+        if let selectedCategoryID {
+            let exists = categories.contains(where: { $0.id.uuidString == selectedCategoryID })
+            if !exists {
+                self.selectedCategoryID = nil
+            }
+        }
+
+        if self.selectedCategoryID == nil, let fallback = filteredCategories.first ?? categories.first {
+            self.selectedCategoryID = fallback.id.uuidString
+        }
+    }
 }
+
+#if os(macOS)
+private struct MacCategoryItemRecord: Identifiable {
+    let item: InventoryItem
+    let location: InventoryLocation
+
+    var id: UUID { item.id }
+}
+
+private struct MacCategoryItemDetailView: View {
+    let category: InventoryCategory
+    @Binding var searchText: String
+    @Binding var selectedItemID: String?
+
+    @Environment(AppCoordinator.self) private var coordinator
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var editingItem: InventoryItem?
+    @State private var showingAddLocation = false
+    @State private var newLocationName = ""
+    @State private var newLocationEmoji = "📍"
+    @State private var showingLocationPicker = false
+    @State private var showingAddItemSheet = false
+    @State private var addItemLocationID: String?
+    @State private var isViewActive = false
+
+    private var locations: [InventoryLocation] {
+        category.locations.sorted { $0.name < $1.name }
+    }
+
+    private var allItemRecords: [MacCategoryItemRecord] {
+        var records: [MacCategoryItemRecord] = []
+        for location in locations {
+            let sortedItems = location.items.sorted { $0.name < $1.name }
+            for item in sortedItems {
+                records.append(MacCategoryItemRecord(item: item, location: location))
+            }
+        }
+        return records
+    }
+
+    private var filteredRecords: [MacCategoryItemRecord] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let queryTokens = InventorySearchMatcher.queryTokenized(query)
+        guard !queryTokens.isEmpty else { return allItemRecords }
+
+        return allItemRecords.filter { record in
+            InventorySearchMatcher.matches(
+                queryTokens: queryTokens,
+                fields: [
+                    record.item.name,
+                    record.item.vendor ?? "",
+                    record.item.unitType,
+                    record.location.name
+                ]
+            )
+        }
+    }
+
+    private var lowStockCount: Int {
+        filteredRecords.reduce(into: 0) { partialResult, record in
+            if record.item.stockLevel <= record.item.parLevel {
+                partialResult += 1
+            }
+        }
+    }
+
+    private var selectedAddLocation: InventoryLocation? {
+        guard let addItemLocationID else { return nil }
+        return locations.first(where: { $0.id.uuidString == addItemLocationID })
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            detailHeader
+
+            Divider()
+                .overlay(DesignSystem.Colors.glassStroke.opacity(0.45))
+
+            List(selection: $selectedItemID) {
+                detailRows
+            }
+            .listStyle(.inset)
+            .liquidListChrome()
+            .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.38))
+            .animation(.easeInOut(duration: 0.2), value: filteredRecords.map { $0.item.id })
+        }
+        .sheet(item: $editingItem) { item in
+            ItemSettingsSheet(item: item)
+        }
+        .sheet(isPresented: $showingAddLocation) {
+            AddLocationSheet(locationName: $newLocationName, locationEmoji: $newLocationEmoji) {
+                let trimmedName = newLocationName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedName.isEmpty else { return }
+
+                let location = InventoryLocation(name: trimmedName, emoji: newLocationEmoji)
+                location.category = category
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    modelContext.insert(location)
+                }
+
+                newLocationName = ""
+                newLocationEmoji = "📍"
+
+                do {
+                    try modelContext.save()
+                } catch {
+                    print("Failed to save location: \(error)")
+                    DesignSystem.HapticFeedback.trigger(.error)
+                }
+            }
+        }
+        .sheet(isPresented: $showingLocationPicker) {
+            NavigationStack {
+                Form {
+                    Picker("Location", selection: $addItemLocationID) {
+                        ForEach(locations) { location in
+                            Text("\(location.emoji) \(location.name)")
+                                .tag(Optional(location.id.uuidString))
+                        }
+                    }
+                }
+                .liquidFormChrome()
+                .navigationTitle("Choose Location")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            showingLocationPicker = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Continue") {
+                            showingLocationPicker = false
+                            if selectedAddLocation != nil {
+                                showingAddItemSheet = true
+                            }
+                        }
+                        .disabled(selectedAddLocation == nil)
+                    }
+                }
+            }
+            .frame(minWidth: 420, minHeight: 260)
+        }
+        .sheet(isPresented: $showingAddItemSheet) {
+            if let selectedAddLocation {
+                AddInventoryItemView(location: selectedAddLocation)
+            } else {
+                ContentUnavailableView("No Location Selected", systemImage: "mappin.slash")
+            }
+        }
+        .onAppear {
+            isViewActive = true
+            normalizeSelection()
+        }
+        .onDisappear {
+            isViewActive = false
+        }
+        .onChange(of: allItemRecords.map { $0.item.id }) { _, _ in
+            normalizeSelection()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddItemCommand)) { _ in
+            guard isViewActive, coordinator.isManager else { return }
+            presentAddItemFlow()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryDeleteSelectionCommand)) { _ in
+            guard isViewActive, coordinator.isManager else { return }
+            deleteSelectedItem()
+        }
+        .onDeleteCommand {
+            guard coordinator.isManager else { return }
+            deleteSelectedItem()
+        }
+    }
+
+    private var detailHeader: some View {
+        HStack(spacing: 12) {
+            Text("\(category.emoji) \(category.name)")
+                .font(DesignSystem.Typography.headline)
+
+            Spacer()
+
+            Text("\(filteredRecords.count) items")
+                .font(DesignSystem.Typography.caption)
+                .foregroundColor(DesignSystem.Colors.secondary)
+                .monospacedDigit()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(DesignSystem.Colors.surface.opacity(0.8))
+                )
+
+            Divider().frame(height: 24)
+
+            Text("\(lowStockCount) low")
+                .font(DesignSystem.Typography.caption)
+                .foregroundColor(DesignSystem.Colors.warning)
+                .monospacedDigit()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(DesignSystem.Colors.surface.opacity(0.8))
+                )
+        }
+        .padding(.horizontal, DesignSystem.Spacing.grid_2)
+        .padding(.top, DesignSystem.Spacing.grid_1)
+        .padding(.bottom, DesignSystem.Spacing.grid_1)
+    }
+
+    @ViewBuilder
+    private var detailRows: some View {
+        if filteredRecords.isEmpty {
+            ContentUnavailableView {
+                Label(
+                    searchText.isEmpty ? "No Items" : "No Search Results",
+                    systemImage: searchText.isEmpty ? "shippingbox" : "magnifyingglass"
+                )
+            } description: {
+                Text(
+                    searchText.isEmpty
+                        ? "Add items to this category so staff can track quantity and minimum levels."
+                        : "No items in this category match that search."
+                )
+            } actions: {
+                if searchText.isEmpty {
+                    if coordinator.isManager {
+                        Button(locations.isEmpty ? "Add Location" : "Add Item") {
+                            if locations.isEmpty {
+                                showingAddLocation = true
+                            } else {
+                                presentAddItemFlow()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    Button("Clear Search") {
+                        searchText = ""
+                    }
+                }
+            }
+            .listRowBackground(Color.clear)
+        } else {
+            ForEach(filteredRecords) { record in
+                itemRow(record)
+                    .tag(record.item.id.uuidString)
+                    .contextMenu {
+                        Button("Edit Item", systemImage: "pencil") {
+                            editingItem = record.item
+                        }
+                        Button("Delete Item", systemImage: "trash", role: .destructive) {
+                            deleteItem(record.item)
+                        }
+                    }
+                    .onTapGesture(count: 2) {
+                        editingItem = record.item
+                    }
+            }
+        }
+    }
+
+    private func itemRow(_ record: MacCategoryItemRecord) -> some View {
+        let isLowStock = record.item.stockLevel <= record.item.parLevel
+
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(record.item.name)
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundColor(DesignSystem.Colors.primary)
+
+                HStack(spacing: 6) {
+                    Text(record.item.unitType)
+                    Text("•")
+                    Text("Min \(formattedQuantity(record.item.parLevel))")
+                    Text("•")
+                    Text(record.location.name)
+                }
+                .font(DesignSystem.Typography.caption)
+                .foregroundColor(DesignSystem.Colors.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            if isLowStock {
+                Text("Low Stock")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.warning)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(DesignSystem.Colors.warning.opacity(0.16))
+                    )
+            }
+
+            Text(formattedQuantity(record.item.stockLevel))
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundColor(DesignSystem.Colors.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(DesignSystem.Colors.surface.opacity(0.9))
+                )
+                .contentTransition(.numericText(value: record.item.stockLevel))
+                .animation(.easeInOut(duration: 0.2), value: record.item.stockLevel)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func presentAddItemFlow() {
+        guard coordinator.isManager else { return }
+
+        if locations.isEmpty {
+            showingAddLocation = true
+            return
+        }
+
+        if locations.count == 1 {
+            addItemLocationID = locations[0].id.uuidString
+            showingAddItemSheet = true
+            return
+        }
+
+        if addItemLocationID == nil || selectedAddLocation == nil {
+            addItemLocationID = locations[0].id.uuidString
+        }
+        showingLocationPicker = true
+    }
+
+    private func normalizeSelection() {
+        guard let selectedItemID else { return }
+        let exists = allItemRecords.contains(where: { $0.item.id.uuidString == selectedItemID })
+        if !exists {
+            self.selectedItemID = nil
+        }
+    }
+
+    private func deleteSelectedItem() {
+        guard
+            let selectedItemID,
+            let record = allItemRecords.first(where: { $0.item.id.uuidString == selectedItemID })
+        else {
+            return
+        }
+        deleteItem(record.item)
+    }
+
+    private func deleteItem(_ item: InventoryItem) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            modelContext.delete(item)
+        }
+        if selectedItemID == item.id.uuidString {
+            selectedItemID = nil
+        }
+        do {
+            try modelContext.save()
+            DesignSystem.HapticFeedback.trigger(.success)
+        } catch {
+            print("Failed to delete item: \(error)")
+            DesignSystem.HapticFeedback.trigger(.error)
+        }
+    }
+
+    private func formattedQuantity(_ value: Double) -> String {
+        if value.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.0f", value)
+        }
+        return String(format: "%.1f", value)
+    }
+}
+#endif
 
 // MARK: - Location List
 struct LocationListView: View {
@@ -635,6 +1199,7 @@ struct LocationListView: View {
                 suggestions.append(
                     InventoryItemSearchResult(
                         itemID: item.id,
+                        categoryID: category.id,
                         itemName: item.name,
                         categoryName: category.name,
                         categoryEmoji: category.emoji,
@@ -679,8 +1244,8 @@ struct LocationListView: View {
             if coordinator.isManager {
                 Button { showingAddLocation = true } label: { Image(systemName: "plus") }
                     #if os(macOS)
-                    .keyboardShortcut("n", modifiers: [.command, .shift])
-                    .help("Add Location (\u{2318}\u{21E7}N)")
+                    .keyboardShortcut("n", modifiers: [.command, .option])
+                    .help("Add Location (\u{2318}\u{2325}N)")
                     #endif
             }
             #if os(macOS)
@@ -1071,8 +1636,8 @@ struct ItemListView: View {
                 if coordinator.isManager {
                     Button { showingAddItem = true } label: { Image(systemName: "plus") }
                         #if os(macOS)
-                        .keyboardShortcut("n", modifiers: [.command, .option])
-                        .help("Add Item (\u{2318}\u{2325}N)")
+                        .keyboardShortcut("n", modifiers: [.command])
+                        .help("Add Item (\u{2318}N)")
                         #endif
                 }
             }
@@ -1146,6 +1711,7 @@ struct ItemListView: View {
         }
         .liquidListChrome()
         .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.38))
+        .animation(.easeInOut(duration: 0.2), value: filteredItems.map { $0.id })
     }
 
     @ViewBuilder
@@ -1311,9 +1877,11 @@ struct ItemListView: View {
 
     private func deleteItem(at offsets: IndexSet) {
         let itemsToDelete = offsets.map { filteredItems[$0] }
-        for item in itemsToDelete {
-            hiddenItemIDSet.remove(item.id.uuidString)
-            modelContext.delete(item)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            for item in itemsToDelete {
+                hiddenItemIDSet.remove(item.id.uuidString)
+                modelContext.delete(item)
+            }
         }
         persistHiddenItemSet()
         do {
@@ -1327,7 +1895,9 @@ struct ItemListView: View {
     private func deleteItem(_ item: InventoryItem) {
         hiddenItemIDSet.remove(item.id.uuidString)
         persistHiddenItemSet()
-        modelContext.delete(item)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            modelContext.delete(item)
+        }
         if selectedItemID == item.id.uuidString {
             selectedItemID = nil
         }
@@ -1363,7 +1933,9 @@ struct ItemListView: View {
             notes: item.notes
         )
         duplicate.location = location
-        modelContext.insert(duplicate)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            modelContext.insert(duplicate)
+        }
         do {
             try modelContext.save()
             DesignSystem.HapticFeedback.trigger(.success)
@@ -1447,6 +2019,13 @@ struct InventoryItemRow: View {
                             Text(item.unitType)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+
+                            Text("•")
+                                .foregroundColor(.secondary)
+
+                            Text("Min \(formatValue(item.parLevel))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                             
                             if let vendor = item.vendor, !vendor.isEmpty {
                                 Text("•")
@@ -1454,6 +2033,14 @@ struct InventoryItemRow: View {
                                 Text(vendor)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+                            }
+
+                            if item.stockLevel <= item.parLevel {
+                                Text("•")
+                                    .foregroundColor(.secondary)
+                                Text("Low Stock")
+                                    .font(.caption)
+                                    .foregroundColor(DesignSystem.Colors.warning)
                             }
 
                             if isHidden {
@@ -1491,6 +2078,8 @@ struct InventoryItemRow: View {
                     } label: {
                         Text(formatValue(item.stockLevel))
                             .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                            .contentTransition(.numericText(value: item.stockLevel))
+                            .animation(.easeInOut(duration: 0.2), value: item.stockLevel)
                             .frame(width: 64, alignment: .center)
                             .frame(minHeight: 36)
                             .multilineTextAlignment(.center)
@@ -1512,12 +2101,20 @@ struct InventoryItemRow: View {
             } else {
                 Text(formatValue(item.stockLevel))
                     .font(.headline.monospacedDigit())
+                    .contentTransition(.numericText(value: item.stockLevel))
+                    .animation(.easeInOut(duration: 0.2), value: item.stockLevel)
             }
         }
         .padding(.vertical, 6)
         .opacity(isHidden ? 0.6 : 1.0)
         .contextMenu {
             if canOpenSettings {
+                Button {
+                    onTapName()
+                } label: {
+                    Label("Edit Item", systemImage: "pencil")
+                }
+
                 Button {
                     onToggleHidden()
                 } label: {
@@ -1553,8 +2150,10 @@ struct InventoryItemRow: View {
         
         let step = isDecimal ? 0.1 : 1.0
         let newLevel = max(0, item.stockLevel + (direction * step))
-        item.stockLevel = newLevel
-        item.amountOnHand = newLevel
+        withAnimation(.easeInOut(duration: 0.2)) {
+            item.stockLevel = newLevel
+            item.amountOnHand = newLevel
+        }
     }
     
     private func formatValue(_ val: Double) -> String {
