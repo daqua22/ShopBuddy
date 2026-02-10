@@ -25,13 +25,20 @@ struct ChecklistsView: View {
     private var clockedInEmployees: [Employee] {
         activeEmployees.filter { $0.isClockedIn }
     }
+
+    @Query private var settings: [AppSettings]
     
     private var canEdit: Bool {
         coordinator.isManager
     }
     
     private var canMarkComplete: Bool {
-        coordinator.isManager || coordinator.currentEmployee?.isClockedIn == true
+        // If setting requires clock-in, only managers or clocked-in employees can complete
+        if let setting = settings.first, setting.requireClockInForChecklists {
+            return coordinator.isManager || coordinator.currentEmployee?.isClockedIn == true
+        }
+        // Otherwise, any authenticated user can complete
+        return coordinator.isAuthenticated
     }
     
     var body: some View {
@@ -93,8 +100,20 @@ struct ChecklistsView: View {
                         editingChecklist = checklist
                     },
                     onTaskTap: { task in
-                        selectedTask = task
-                        showingEmployeeSelector = true
+                        if task.isCompleted {
+                            // Undo: un-complete the task
+                            task.isCompleted = false
+                            task.completedBy = nil
+                            task.completedAt = nil
+                        } else if let setting = settings.first, !setting.requireClockInForChecklists {
+                            // Clock-in NOT required — complete directly with logged-in user
+                            task.markComplete(by: coordinator.currentUserDisplayName)
+                            DesignSystem.HapticFeedback.trigger(.success)
+                        } else {
+                            // Clock-in required — show employee selector
+                            selectedTask = task
+                            showingEmployeeSelector = true
+                        }
                     },
                     onReset: {
                         resetChecklist(checklist)
@@ -189,7 +208,7 @@ struct ChecklistCard: View {
                         task: task,
                         canMarkComplete: canMarkComplete,
                         onTap: {
-                            if !task.isCompleted && canMarkComplete {
+                            if task.isCompleted || canMarkComplete {
                                 onTaskTap(task)
                             }
                         }
@@ -236,7 +255,7 @@ struct ChecklistTaskRow: View {
             }
             .padding(.vertical, DesignSystem.Spacing.grid_1)
         }
-        .disabled(task.isCompleted || !canMarkComplete)
+        .disabled(!task.isCompleted && !canMarkComplete)
     }
 }
 

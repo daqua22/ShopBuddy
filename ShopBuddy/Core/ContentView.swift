@@ -255,6 +255,7 @@ struct ContentView: View {
         case .dashboard: DashboardView()
         case .inventory: InventoryView()
         case .checklists: ChecklistsView()
+        case .dailyTasks: DailyTasksView()
         case .clockInOut: ClockInOutView()
         case .tips: TipsView()
         case .employees: EmployeesView()
@@ -269,7 +270,7 @@ struct ContentView: View {
     }
 
     private var sidebarPrimaryTabs: [TabItem] {
-        let preferredOrder: [TabItem] = [.dashboard, .inventory, .checklists, .clockInOut, .tips]
+        let preferredOrder: [TabItem] = [.dashboard, .inventory, .checklists, .dailyTasks, .clockInOut, .tips]
         return preferredOrder.filter(visibleTabs.contains)
     }
 

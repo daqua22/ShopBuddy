@@ -227,10 +227,92 @@ final class DailyTips {
 final class AppSettings {
     var id: UUID
     var allowEmployeeInventoryEdit: Bool
-    
+    var requireClockInForChecklists: Bool = false
+    var operatingDaysRaw: String = "[2,3,4,5,6]"
+    var openTime: Date = {
+        Calendar.current.date(from: DateComponents(hour: 9, minute: 0)) ?? Date()
+    }()
+    var closeTime: Date = {
+        Calendar.current.date(from: DateComponents(hour: 17, minute: 0)) ?? Date()
+    }()
+
     init() {
         self.id = UUID()
         self.allowEmployeeInventoryEdit = false
+        self.requireClockInForChecklists = false
+        // Default Mon–Fri
+        self.operatingDaysRaw = "[2,3,4,5,6]"
+        // Default 9:00 AM
+        let cal = Calendar.current
+        self.openTime = cal.date(from: DateComponents(hour: 9, minute: 0)) ?? Date()
+        self.closeTime = cal.date(from: DateComponents(hour: 17, minute: 0)) ?? Date()
+    }
+
+    var operatingDays: Set<Int> {
+        get {
+            guard let data = operatingDaysRaw.data(using: .utf8),
+                  let arr = try? JSONDecoder().decode([Int].self, from: data) else { return [2,3,4,5,6] }
+            return Set(arr)
+        }
+        set {
+            if let data = try? JSONEncoder().encode(Array(newValue).sorted()),
+               let str = String(data: data, encoding: .utf8) {
+                operatingDaysRaw = str
+            }
+        }
+    }
+
+    /// Returns the next operating day from the given date.
+    func nextOperatingDay(after date: Date = Date()) -> Date {
+        let cal = Calendar.current
+        let days = operatingDays
+        guard !days.isEmpty else {
+            // Fallback: tomorrow
+            return cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: date)) ?? date
+        }
+        var candidate = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: date)) ?? date
+        // Search up to 7 days
+        for _ in 0..<7 {
+            let weekday = cal.component(.weekday, from: candidate)
+            if days.contains(weekday) { return candidate }
+            candidate = cal.date(byAdding: .day, value: 1, to: candidate) ?? candidate
+        }
+        return candidate
+    }
+
+    static let weekdaySymbols: [(index: Int, short: String, full: String)] = {
+        let formatter = DateFormatter()
+        return (1...7).map { i in
+            (index: i, short: formatter.shortWeekdaySymbols[i - 1], full: formatter.weekdaySymbols[i - 1])
+        }
+    }()
+}
+
+// MARK: - Daily Task (Whiteboard)
+@Model
+final class DailyTask {
+    var id: UUID
+    var title: String
+    var isCompleted: Bool
+    var targetDate: Date
+    var createdAt: Date
+    var completedBy: String?
+    var completedAt: Date?
+    var sortOrder: Int
+
+    init(title: String, targetDate: Date, sortOrder: Int = 0) {
+        self.id = UUID()
+        self.title = title
+        self.isCompleted = false
+        self.targetDate = Calendar.current.startOfDay(for: targetDate)
+        self.createdAt = Date()
+        self.sortOrder = sortOrder
+    }
+
+    func markComplete(by employeeName: String) {
+        isCompleted = true
+        completedBy = employeeName
+        completedAt = Date()
     }
 }
 

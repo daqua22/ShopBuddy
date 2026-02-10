@@ -111,10 +111,51 @@ struct SettingsView: View {
                 .pickerStyle(.inline)
             }
 
+            // MARK: Checklists
+            Section("Checklists") {
+                if let setting = settings.first {
+                    Toggle("Only clocked-in employees can complete tasks", isOn: Bindable(setting).requireClockInForChecklists)
+                }
+            }
+
             // MARK: Inventory Permissions
             Section("Inventory Permissions") {
                 if let setting = settings.first {
                     Toggle("Employees can change stock levels", isOn: Bindable(setting).allowEmployeeInventoryEdit)
+                }
+            }
+
+            // MARK: Operating Schedule
+            Section("Operating Schedule") {
+                if let setting = settings.first {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Operating Days")
+                            .font(DesignSystem.Typography.subheadline)
+                            .foregroundColor(DesignSystem.Colors.secondary)
+                        HStack(spacing: 6) {
+                            ForEach(AppSettings.weekdaySymbols, id: \.index) { day in
+                                let isOn = setting.operatingDays.contains(day.index)
+                                Button {
+                                    var days = setting.operatingDays
+                                    if isOn { days.remove(day.index) } else { days.insert(day.index) }
+                                    setting.operatingDays = days
+                                } label: {
+                                    Text(day.short)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 6)
+                                        .background(isOn ? DesignSystem.Colors.accent.opacity(0.25) : DesignSystem.Colors.surface.opacity(0.3))
+                                        .foregroundColor(isOn ? DesignSystem.Colors.accent : DesignSystem.Colors.secondary)
+                                        .cornerRadius(6)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+
+                    DatePicker("Opens at", selection: Bindable(setting).openTime, displayedComponents: .hourAndMinute)
+                    DatePicker("Closes at", selection: Bindable(setting).closeTime, displayedComponents: .hourAndMinute)
                 }
             }
             

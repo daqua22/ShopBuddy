@@ -30,6 +30,7 @@ struct ShopBuddyApp: App {
             ChecklistTemplate.self,
             ChecklistTask.self,
             DailyTips.self,
+            DailyTask.self,
             PayrollPeriod.self,
             AppSettings.self
         ])

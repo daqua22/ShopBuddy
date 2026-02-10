@@ -8,8 +8,15 @@ struct DashboardView: View {
     @Query private var inventoryItems: [InventoryItem]
     @Query(sort: \ChecklistTemplate.title) private var checklists: [ChecklistTemplate]
     @Query private var shifts: [Shift]
+    @Query(sort: \DailyTask.sortOrder) private var allDailyTasks: [DailyTask]
 
     // MARK: - Computed Data
+
+    private var todaysTasks: [DailyTask] {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: Date())
+        return allDailyTasks.filter { cal.startOfDay(for: $0.targetDate) == start }
+    }
 
     private var clockedInEmployees: [Employee] {
         employees.filter { $0.isClockedIn }
@@ -56,8 +63,9 @@ struct DashboardView: View {
                     GridItem(.flexible(), spacing: DesignSystem.Spacing.grid_3),
                     GridItem(.flexible(), spacing: DesignSystem.Spacing.grid_3)
                 ], spacing: DesignSystem.Spacing.grid_3) {
-                    clockedInCard
+                    todaysTasksCard
                     checklistProgressCard
+                    clockedInCard
                     lowStockCard
                     hoursWorkedCard
                 }
@@ -98,6 +106,70 @@ struct DashboardView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE, MMMM d"
         return formatter.string(from: Date())
+    }
+    // MARK: - Today's Tasks Card
+
+    private var todaysTasksCard: some View {
+        let done = todaysTasks.filter(\.isCompleted).count
+        let total = todaysTasks.count
+        let progress = total > 0 ? Double(done) / Double(total) : 0
+
+        return VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_2) {
+            HStack {
+                Image(systemName: "note.text")
+                    .font(.title2)
+                    .foregroundColor(done == total && total > 0 ? DesignSystem.Colors.success : DesignSystem.Colors.accent)
+                Spacer()
+                Text("\(done)/\(total)")
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.primary)
+            }
+
+            Text("Today's Tasks")
+                .font(DesignSystem.Typography.headline)
+                .foregroundColor(DesignSystem.Colors.primary)
+
+            // Progress bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(DesignSystem.Colors.surface)
+                        .frame(height: 8)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(done == total && total > 0 ? DesignSystem.Colors.success : DesignSystem.Colors.accent)
+                        .frame(width: geo.size.width * progress, height: 8)
+                }
+            }
+            .frame(height: 8)
+
+            if todaysTasks.isEmpty {
+                Text("No tasks for today")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundColor(DesignSystem.Colors.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(todaysTasks.prefix(4), id: \.id) { task in
+                        HStack(spacing: 6) {
+                            Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                                .font(.caption)
+                                .foregroundColor(task.isCompleted ? DesignSystem.Colors.success : DesignSystem.Colors.tertiary)
+                            Text(task.title)
+                                .font(DesignSystem.Typography.caption)
+                                .foregroundColor(task.isCompleted ? DesignSystem.Colors.tertiary : DesignSystem.Colors.secondary)
+                                .lineLimit(1)
+                                .strikethrough(task.isCompleted)
+                        }
+                    }
+                    if todaysTasks.count > 4 {
+                        Text("+\(todaysTasks.count - 4) more")
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundColor(DesignSystem.Colors.tertiary)
+                    }
+                }
+            }
+        }
+        .padding(DesignSystem.Spacing.grid_2)
+        .glassCard()
     }
 
     // MARK: - Clocked In Card
