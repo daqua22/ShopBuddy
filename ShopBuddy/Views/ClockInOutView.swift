@@ -205,6 +205,7 @@ struct ClockedInEmployeeRow: View {
                     .background(DesignSystem.Colors.error)
                     .cornerRadius(DesignSystem.CornerRadius.small)
             }
+            .buttonStyle(.plain)
         }
         .padding(DesignSystem.Spacing.grid_2)
         .glassCard()

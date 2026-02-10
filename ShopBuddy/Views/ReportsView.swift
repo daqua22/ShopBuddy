@@ -108,7 +108,7 @@ struct ReportsView: View {
                 .padding(.horizontal, DesignSystem.Spacing.grid_1)
 
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 360), spacing: DesignSystem.Spacing.grid_2, alignment: .top)],
+                    columns: [GridItem(.adaptive(minimum: 280), spacing: DesignSystem.Spacing.grid_2, alignment: .top)],
                     spacing: DesignSystem.Spacing.grid_2
                 ) {
                     reportTile(title: "Date Range", systemImage: "calendar") {

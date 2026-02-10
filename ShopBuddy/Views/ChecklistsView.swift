@@ -144,22 +144,26 @@ struct ChecklistCard: View {
                 Spacer()
                 
                 if canEdit {
-                    Menu {
+                    HStack(spacing: DesignSystem.Spacing.grid_2) {
                         Button {
                             onEdit()
                         } label: {
-                            Label("Edit Checklist", systemImage: "pencil")
+                            Image(systemName: "pencil")
+                                .font(.title3)
+                                .foregroundColor(DesignSystem.Colors.accent)
                         }
-                        
+                        .buttonStyle(.plain)
+                        .help("Edit Checklist")
+
                         Button {
                             onReset()
                         } label: {
-                            Label("Reset All Tasks", systemImage: "arrow.counterclockwise")
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.title3)
+                                .foregroundColor(DesignSystem.Colors.secondary)
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.title2)
-                            .foregroundColor(DesignSystem.Colors.primary)
+                        .buttonStyle(.plain)
+                        .help("Reset All Tasks")
                     }
                 }
             }

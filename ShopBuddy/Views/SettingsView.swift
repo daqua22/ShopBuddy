@@ -11,12 +11,13 @@ import SwiftData
 // MARK: - App Theme
 
 enum AppTheme: String, CaseIterable, Identifiable {
-    case system   = "System"
-    case light    = "Light"
-    case dark     = "Dark"
-    case midnight = "Midnight"
-    case ocean    = "Ocean"
-    case forest   = "Forest"
+    case system    = "System"
+    case light     = "Light"
+    case graphite  = "Graphite"
+    case dark      = "Dark"
+    case midnight  = "Midnight"
+    case ocean     = "Ocean"
+    case forest    = "Forest"
 
     var id: String { rawValue }
 
@@ -24,6 +25,7 @@ enum AppTheme: String, CaseIterable, Identifiable {
         switch self {
         case .system:   return nil
         case .light:    return .light
+        case .graphite: return .dark
         case .dark, .midnight, .ocean, .forest: return .dark
         }
     }
@@ -31,34 +33,45 @@ enum AppTheme: String, CaseIterable, Identifiable {
     /// Accent tint applied app-wide for this theme.
     var accentColor: Color {
         switch self {
-        case .system:   return .accentColor
-        case .light:    return Color(red: 0.20, green: 0.40, blue: 0.85) // vivid blue
-        case .dark:     return Color(red: 0.40, green: 0.60, blue: 1.00) // soft blue
-        case .midnight: return Color(red: 0.65, green: 0.55, blue: 1.00) // lavender
-        case .ocean:    return Color(red: 0.20, green: 0.75, blue: 0.80) // teal
-        case .forest:   return Color(red: 0.35, green: 0.75, blue: 0.45) // green
+        case .system:    return .accentColor
+        case .light:     return Color(red: 0.20, green: 0.40, blue: 0.85) // vivid blue
+        case .graphite:  return Color(red: 0.65, green: 0.68, blue: 0.72) // warm silver
+        case .dark:      return Color(red: 0.40, green: 0.60, blue: 1.00) // soft blue
+        case .midnight:  return Color(red: 0.65, green: 0.55, blue: 1.00) // lavender
+        case .ocean:     return Color(red: 0.20, green: 0.75, blue: 0.80) // teal
+        case .forest:    return Color(red: 0.35, green: 0.75, blue: 0.45) // green
         }
     }
 
     var icon: String {
         switch self {
-        case .system:   return "gearshape"
-        case .light:    return "sun.max.fill"
-        case .dark:     return "moon.fill"
-        case .midnight: return "moon.stars.fill"
-        case .ocean:    return "water.waves"
-        case .forest:   return "leaf.fill"
+        case .system:    return "gearshape"
+        case .light:     return "sun.max.fill"
+        case .graphite:  return "circle.lefthalf.filled"
+        case .dark:      return "moon.fill"
+        case .midnight:  return "moon.stars.fill"
+        case .ocean:     return "water.waves"
+        case .forest:    return "leaf.fill"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .system:   return "Matches macOS appearance"
-        case .light:    return "Clean, bright workspace"
-        case .dark:     return "Easy on the eyes"
-        case .midnight: return "Deep purple accents"
-        case .ocean:    return "Cool teal tones"
-        case .forest:   return "Calm green palette"
+        case .system:    return "Matches macOS appearance"
+        case .light:     return "Clean, bright workspace"
+        case .graphite:  return "Neutral grey, easy balance"
+        case .dark:      return "Easy on the eyes"
+        case .midnight:  return "Deep purple accents"
+        case .ocean:     return "Cool teal tones"
+        case .forest:    return "Calm green palette"
+        }
+    }
+
+    /// Background tint overlaid on the glass for custom theme colors.
+    var backgroundOverlay: Color {
+        switch self {
+        case .graphite: return Color(white: 0.32, opacity: 0.35)
+        default:        return .clear
         }
     }
 }
@@ -76,53 +89,63 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                // MARK: Appearance
-                Section("Appearance") {
-                    Picker("Theme", selection: $selectedTheme) {
-                        ForEach(AppTheme.allCases) { theme in
-                            Label {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(theme.rawValue)
-                                    Text(theme.subtitle)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            } icon: {
-                                Image(systemName: theme.icon)
-                                    .foregroundColor(theme.accentColor)
+        Form {
+            // MARK: Appearance
+            Section("Appearance") {
+                Picker("Theme", selection: $selectedTheme) {
+                    ForEach(AppTheme.allCases) { theme in
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(theme.rawValue)
+                                Text(theme.subtitle)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
-                            .tag(theme.rawValue)
+                        } icon: {
+                            Image(systemName: theme.icon)
+                            .foregroundColor(theme.accentColor)
                         }
-                    }
-                    .pickerStyle(.inline)
-                }
-
-                // MARK: Inventory Permissions
-                Section("Inventory Permissions") {
-                    if let setting = settings.first {
-                        Toggle("Employees can change stock levels", isOn: Bindable(setting).allowEmployeeInventoryEdit)
+                        .tag(theme.rawValue)
                     }
                 }
-                
-                // MARK: Account
-                Section("Account") {
-                    LabeledContent("Role", value: "Manager")
-                }
+                .pickerStyle(.inline)
+            }
 
-                // MARK: About
-                Section("About") {
-                    LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
-                    LabeledContent("Build", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
+            // MARK: Inventory Permissions
+            Section("Inventory Permissions") {
+                if let setting = settings.first {
+                    Toggle("Employees can change stock levels", isOn: Bindable(setting).allowEmployeeInventoryEdit)
                 }
             }
-            .formStyle(.grouped)
-            .navigationTitle("Settings")
-            .onAppear {
-                if settings.isEmpty {
-                    modelContext.insert(AppSettings())
+            
+            // MARK: Account
+            Section("Account") {
+                LabeledContent("Role", value: "Manager")
+            }
+
+            // MARK: About
+            Section("About") {
+                LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
+                LabeledContent("Build", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
+            }
+
+            // MARK: Developer
+            Section("Developer") {
+                Button("Reset All Data", role: .destructive) {
+                    do {
+                        try modelContext.delete(model: Employee.self)
+                        try modelContext.delete(model: AppSettings.self)
+                    } catch {
+                        print("Failed to reset data: \(error)")
+                    }
                 }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Settings")
+        .onAppear {
+            if settings.isEmpty {
+                modelContext.insert(AppSettings())
             }
         }
     }

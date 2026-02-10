@@ -50,6 +50,20 @@ struct ShopBuddyApp: App {
                 .modelContainer(modelContainer)
                 .preferredColorScheme(currentTheme.colorScheme)
                 .tint(currentTheme.accentColor)
+                #if os(macOS)
+                // Force the NSWindow to be transparent
+                .background(
+                    WindowAccessor { window in
+                        window.isOpaque = false
+                        window.backgroundColor = .clear
+                        window.isMovableByWindowBackground = true
+                        // Critical: make contentView layer transparent too
+                        window.contentView?.wantsLayer = true
+                        window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+                        // titlebarAppearsTransparent is handled by FullScreenObserver
+                    }
+                )
+                #endif
         }
         #if os(macOS)
         .commands {

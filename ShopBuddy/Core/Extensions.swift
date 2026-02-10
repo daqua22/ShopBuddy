@@ -213,7 +213,12 @@ extension View {
 
     /// Apply the shared liquid backdrop.
     func liquidBackground() -> some View {
+        #if os(macOS)
+        // On macOS, use clear background to let the VisualEffectView glass show through
+        background(Color.clear)
+        #else
         background(DesignSystem.LiquidBackdrop().ignoresSafeArea())
+        #endif
     }
 
     /// Apply list chrome for the liquid style.
@@ -221,7 +226,7 @@ extension View {
         #if os(macOS)
         return AnyView(
             scrollContentBackground(.hidden)
-                .background(DesignSystem.LiquidBackdrop().ignoresSafeArea())
+                .background(Color.clear) // Let glass show through
                 .listRowSeparatorTint(DesignSystem.Colors.glassStroke.opacity(0.45))
                 .contentMargins(.top, DesignSystem.Spacing.grid_1, for: .scrollContent)
                 .contentMargins(.horizontal, DesignSystem.Spacing.grid_1, for: .scrollContent)
@@ -244,7 +249,7 @@ extension View {
         #if os(macOS)
         return AnyView(
             scrollContentBackground(.hidden)
-                .background(DesignSystem.LiquidBackdrop().ignoresSafeArea())
+                .background(Color.clear) // Let glass show through
                 .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.34))
                 .listRowSeparatorTint(DesignSystem.Colors.glassStroke.opacity(0.45))
                 .contentMargins(.top, DesignSystem.Spacing.grid_1, for: .scrollContent)
@@ -507,3 +512,108 @@ extension DateRange {
         return DateRange(start: start, end: end)
     }
 }
+
+// MARK: - macOS Window Helpers
+#if os(macOS)
+/// A helper view to access the underlying NSWindow from SwiftUI.
+struct WindowAccessor: NSViewRepresentable {
+    let callback: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            if let window = view.window {
+                callback(window)
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            if let window = nsView.window {
+                callback(window)
+            }
+        }
+    }
+}
+
+/// A wrapper for NSVisualEffectView to create vibrant backgrounds.
+struct VisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .underWindowBackground
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let v = NSVisualEffectView()
+        v.state = .active
+        v.material = material
+        v.blendingMode = blendingMode
+        return v
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+    }
+}
+
+/// Observes NSWindow full-screen state and writes it to a Binding.
+/// Also toggles titlebarAppearsTransparent: glass in full-screen, solid in windowed.
+struct FullScreenObserver: NSViewRepresentable {
+    @Binding var isFullScreen: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            let fs = window.styleMask.contains(.fullScreen)
+            isFullScreen = fs
+            window.titlebarAppearsTransparent = fs
+            context.coordinator.observe(window: window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator {
+        private let parent: FullScreenObserver
+        private var observers: [NSObjectProtocol] = []
+
+        init(parent: FullScreenObserver) {
+            self.parent = parent
+        }
+
+        deinit {
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+        }
+
+        func observe(window: NSWindow) {
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+            observers = []
+
+            let enter = NotificationCenter.default.addObserver(
+                forName: NSWindow.didEnterFullScreenNotification,
+                object: window, queue: .main
+            ) { [weak self] notification in
+                self?.parent.isFullScreen = true
+                (notification.object as? NSWindow)?.titlebarAppearsTransparent = true
+            }
+
+            let exit = NotificationCenter.default.addObserver(
+                forName: NSWindow.didExitFullScreenNotification,
+                object: window, queue: .main
+            ) { [weak self] notification in
+                self?.parent.isFullScreen = false
+                (notification.object as? NSWindow)?.titlebarAppearsTransparent = false
+            }
+
+            observers = [enter, exit]
+        }
+    }
+}
+#endif

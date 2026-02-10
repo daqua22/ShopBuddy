@@ -472,13 +472,42 @@ struct InventoryView: View {
     private var macInventorySplitView: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
-                List(selection: $selectedCategoryID) {
+                List {
                     macCategoryRows
                 }
                 .listStyle(.sidebar)
-                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)) // Reduced insets for custom rows
                 .liquidListChrome()
-                .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.38))
+                .listRowBackground(Color.clear) // Clear background for custom highlighting
+                .overlay {
+                    if filteredCategories.isEmpty {
+                        ContentUnavailableView {
+                            Label(
+                                searchText.isEmpty ? "No Categories" : "No Search Results",
+                                systemImage: searchText.isEmpty ? "folder.badge.plus" : "magnifyingglass"
+                            )
+                        } description: {
+                            Text(
+                                searchText.isEmpty
+                                    ? "Create your first category to start organizing items."
+                                    : "No category, location, or item matches that search."
+                            )
+                        } actions: {
+                            if searchText.isEmpty {
+                                if coordinator.isManager {
+                                    Button("Add Category") {
+                                        showingAddCategory = true
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+                            } else {
+                                Button("Clear Search") {
+                                    searchText = ""
+                                }
+                            }
+                        }
+                    }
+                }
                 .onChange(of: selectedLocationID) { _, newLocID in
                     // When a location is selected from the sidebar, auto-select its parent category
                     guard let newLocID else { return }
@@ -525,158 +554,147 @@ struct InventoryView: View {
 
     @ViewBuilder
     private var macCategoryRows: some View {
-        if filteredCategories.isEmpty {
-            ContentUnavailableView {
-                Label(
-                    searchText.isEmpty ? "No Categories" : "No Search Results",
-                    systemImage: searchText.isEmpty ? "folder.badge.plus" : "magnifyingglass"
-                )
-            } description: {
-                Text(
-                    searchText.isEmpty
-                        ? "Create your first category to start organizing items."
-                        : "No category, location, or item matches that search."
-                )
-            } actions: {
-                if searchText.isEmpty {
-                    if coordinator.isManager {
-                        Button("Add Category") {
-                            showingAddCategory = true
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                } else {
-                    Button("Clear Search") {
-                        searchText = ""
-                    }
-                }
-            }
-        }
-
         ForEach(filteredCategories) { category in
-            DisclosureGroup(isExpanded: Binding(
-                get: { expandedCategories.contains(category.id.uuidString) },
-                set: { isExpanded in
-                    if isExpanded {
-                        expandedCategories.insert(category.id.uuidString)
-                    } else {
-                        expandedCategories.remove(category.id.uuidString)
-                    }
-                }
-            )) {
-                // "All Locations" row — selects the category with no location filter
+            let isExpanded = expandedCategories.contains(category.id.uuidString)
+            let isCategorySelected = selectedCategoryID == category.id.uuidString
+            // Highlight header only if collapsed and category is selected (implied)
+            // OR if strictly following user rule: "Highlight category only when the dropdown of the category is closed."
+            let isHeaderHighlighted = !isExpanded && isCategorySelected
+            
+            VStack(spacing: 0) {
+                // Header Row
                 Button {
-                    selectedLocationID = nil
-                    selectedCategoryID = category.id.uuidString
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        if isExpanded {
+                            expandedCategories.remove(category.id.uuidString)
+                        } else {
+                            expandedCategories.insert(category.id.uuidString)
+                        }
+                    }
+                    // If clicking header, we select the category context
+                    if selectedCategoryID != category.id.uuidString {
+                        selectedCategoryID = category.id.uuidString
+                        selectedLocationID = nil
+                    }
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "tray.2")
+                    HStack(spacing: 12) { // Increased spacing for chevron
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.secondary)
-                        Text("All Locations")
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .frame(width: 16) // Fixed width for alignment
+                        
+                        Text(category.emoji)
+                            .font(.system(size: 16)) // Ensure emoji size consistency
+                        
+                        Text(category.name)
                             .font(DesignSystem.Typography.body)
-                            .foregroundColor(DesignSystem.Colors.primary)
+                            .foregroundColor(isHeaderHighlighted ? .white : DesignSystem.Colors.primary) // Contrast fix
+                        
                         Spacer()
+                        
                         Text("\(category.totalItemCount)")
                             .font(DesignSystem.Typography.caption)
                             .monospacedDigit()
-                            .foregroundColor(DesignSystem.Colors.secondary)
+                            .foregroundColor(isHeaderHighlighted ? .white.opacity(0.8) : DesignSystem.Colors.secondary)
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(isHeaderHighlighted ? DesignSystem.Colors.accent : Color.clear)
+                    )
                 }
                 .buttonStyle(.plain)
+                .padding(.horizontal, 8) // Outer padding for row
+                .contextMenu {
+                     Button("Duplicate Category") {
+                         duplicateCategory(category)
+                     }
+                     Divider()
+                     Button("Delete Category", role: .destructive) {
+                         deleteCategory(category)
+                     }
+                 }
 
-                // Individual location rows
-                ForEach(category.locations.sorted(by: { $0.name < $1.name })) { location in
-                    Button {
-                        selectedCategoryID = category.id.uuidString
-                        selectedLocationID = location.id.uuidString
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(location.emoji)
-                                .font(.system(size: 14))
-                            Text(location.name)
-                                .font(DesignSystem.Typography.body)
-                                .foregroundColor(
-                                    selectedLocationID == location.id.uuidString && selectedCategoryID == category.id.uuidString
-                                        ? DesignSystem.Colors.accent
-                                        : DesignSystem.Colors.primary
-                                )
-                            Spacer()
-                            Text("\(location.items.count)")
-                                .font(DesignSystem.Typography.caption)
-                                .monospacedDigit()
-                                .foregroundColor(DesignSystem.Colors.secondary)
+                // Children
+                if isExpanded {
+                    VStack(spacing: 2) {
+                        // "All Locations" Row
+                        let isAllSelected = isCategorySelected && selectedLocationID == nil
+                        
+                        Button {
+                            selectedCategoryID = category.id.uuidString
+                            selectedLocationID = nil
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "tray.2")
+                                    .font(.system(size: 14))
+                                    .frame(width: 16)
+                                    .foregroundColor(isAllSelected ? .white : .secondary)
+                                Text("All Locations")
+                                    .font(DesignSystem.Typography.body)
+                                    .foregroundColor(isAllSelected ? .white : DesignSystem.Colors.primary)
+                                Spacer()
+                            }
+                            .padding(.leading, 40) // Indent (12+16+12)
+                            .padding(.vertical, 6)
+                            .padding(.trailing, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(isAllSelected ? DesignSystem.Colors.accent : Color.clear)
+                            )
                         }
-                    }
-                    .buttonStyle(.plain)
-                    .if(coordinator.isManager) { view in
-                        view.contextMenu {
-                            Button("Delete Location", systemImage: "trash", role: .destructive) {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    if selectedLocationID == location.id.uuidString {
-                                        selectedLocationID = nil
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 8)
+
+                        // Locations
+                        ForEach(category.locations.sorted(by: { $0.name < $1.name })) { location in
+                            let isLocSelected = selectedLocationID == location.id.uuidString
+                            
+                            Button {
+                                selectedCategoryID = category.id.uuidString
+                                selectedLocationID = location.id.uuidString
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Text(location.emoji)
+                                        .frame(width: 16, alignment: .center)
+                                        .font(.system(size: 14))
+                                    Text(location.name)
+                                        .font(DesignSystem.Typography.body)
+                                        .foregroundColor(isLocSelected ? .white : DesignSystem.Colors.primary)
+                                    Spacer()
+                                    Text("\(location.items.count)")
+                                        .font(DesignSystem.Typography.caption)
+                                        .monospacedDigit()
+                                        .foregroundColor(isLocSelected ? .white.opacity(0.8) : DesignSystem.Colors.secondary)
+                                }
+                                .padding(.leading, 40)
+                                .padding(.vertical, 6)
+                                .padding(.trailing, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(isLocSelected ? DesignSystem.Colors.accent : Color.clear)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 8)
+                            .contextMenu {
+                                Button("Delete Location", role: .destructive) {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        if selectedLocationID == location.id.uuidString {
+                                            selectedLocationID = nil
+                                        }
+                                        modelContext.delete(location)
+                                        try? modelContext.save()
                                     }
-                                    modelContext.delete(location)
-                                    try? modelContext.save()
                                 }
                             }
                         }
                     }
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Text(category.emoji)
-                        .font(.system(size: 24))
-                        .onLongPressGesture {
-                            if coordinator.isManager {
-                                editingCategory = category
-                            }
-                        }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(category.name)
-                            .font(DesignSystem.Typography.headline)
-                            .foregroundColor(DesignSystem.Colors.primary)
-                        Text("\(category.locationCount) locations")
-                            .font(DesignSystem.Typography.caption)
-                            .foregroundColor(DesignSystem.Colors.secondary)
-                    }
-
-                    Spacer(minLength: 10)
-
-                    Text("\(category.totalItemCount)")
-                        .font(DesignSystem.Typography.caption)
-                        .monospacedDigit()
-                        .foregroundColor(DesignSystem.Colors.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(DesignSystem.Colors.surface.opacity(0.8))
-                        )
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .padding(.vertical, 6)
-            .tag(category.id.uuidString)
-            .if(coordinator.isManager) { view in
-                view.contextMenu {
-                    Button("Edit Category", systemImage: "pencil") {
-                        editingCategory = category
-                    }
-                    Button("Add Location", systemImage: "mappin.and.ellipse") {
-                        selectedCategoryID = category.id.uuidString
-                        showingAddLocationFromSidebar = true
-                    }
-                    Divider()
-                    Button("Delete Category", systemImage: "trash", role: .destructive) {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            deleteCategory(category)
-                        }
-                    }
-                }
-            }
-        }
-        .if(coordinator.isManager) { view in
-            view.onDelete(perform: deleteCategory)
         }
     }
     #endif
@@ -1017,6 +1035,39 @@ private struct MacCategoryItemDetailView: View {
             .liquidListChrome()
             .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.38))
             .animation(.easeInOut(duration: 0.2), value: filteredRecords.map { $0.item.id })
+            .overlay {
+                if filteredRecords.isEmpty {
+                    ContentUnavailableView {
+                        Label(
+                            searchText.isEmpty ? "No Items" : "No Search Results",
+                            systemImage: searchText.isEmpty ? "shippingbox" : "magnifyingglass"
+                        )
+                    } description: {
+                        Text(
+                            searchText.isEmpty
+                                ? "Add items to this category so staff can track quantity and minimum levels."
+                                : "No items in this category match that search."
+                        )
+                    } actions: {
+                        if searchText.isEmpty {
+                            if coordinator.isManager {
+                                Button(locations.isEmpty ? "Add Location" : "Add Item") {
+                                    if locations.isEmpty {
+                                        showingAddLocation = true
+                                    } else {
+                                        presentAddItemFlow()
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                        } else {
+                            Button("Clear Search") {
+                                searchText = ""
+                            }
+                        }
+                    }
+                }
+            }
         }
         .macPagePadding(horizontal: DesignSystem.Spacing.grid_1, vertical: DesignSystem.Spacing.grid_1)
         .sheet(item: $editingItem) { item in
@@ -1165,57 +1216,32 @@ private struct MacCategoryItemDetailView: View {
                     Image(systemName: "list.bullet.indent")
                     Text(selectedLocationFilter.map { "\($0.emoji) \($0.name)" } ?? "All Locations")
                         .lineLimit(1)
+                    Spacer()
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 .font(DesignSystem.Typography.caption)
                 .foregroundColor(DesignSystem.Colors.secondary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
+                .frame(width: 150, alignment: .leading) // Reduced width
                 .background(
                     Capsule()
                         .fill(DesignSystem.Colors.surface.opacity(0.8))
                 )
             }
+            .fixedSize() // Prevent expansion
             .menuStyle(.borderlessButton)
         }
         .padding(.horizontal, DesignSystem.Spacing.grid_2)
         .padding(.vertical, DesignSystem.Spacing.grid_2)
+        .frame(height: 60) // Fixed height for header container
     }
 
     @ViewBuilder
     private var detailRows: some View {
-        if filteredRecords.isEmpty {
-            ContentUnavailableView {
-                Label(
-                    searchText.isEmpty ? "No Items" : "No Search Results",
-                    systemImage: searchText.isEmpty ? "shippingbox" : "magnifyingglass"
-                )
-            } description: {
-                Text(
-                    searchText.isEmpty
-                        ? "Add items to this category so staff can track quantity and minimum levels."
-                        : "No items in this category match that search."
-                )
-            } actions: {
-                if searchText.isEmpty {
-                    if coordinator.isManager {
-                        Button(locations.isEmpty ? "Add Location" : "Add Item") {
-                            if locations.isEmpty {
-                                showingAddLocation = true
-                            } else {
-                                presentAddItemFlow()
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                } else {
-                    Button("Clear Search") {
-                        searchText = ""
-                    }
-                }
-            }
-            .listRowBackground(Color.clear)
-        } else {
-            ForEach(filteredRecords) { record in
+        ForEach(filteredRecords) { record in
                 itemRow(record)
                     .tag(record.item.id.uuidString)
                     .contextMenu {
@@ -1230,7 +1256,6 @@ private struct MacCategoryItemDetailView: View {
                         editingItem = record.item
                     }
             }
-        }
     }
 
     private func itemRow(_ record: MacCategoryItemRecord) -> some View {

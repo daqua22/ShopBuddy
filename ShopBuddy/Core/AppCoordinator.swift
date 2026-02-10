@@ -41,6 +41,7 @@ final class AppCoordinator {
 }
 
 enum TabItem: String, CaseIterable {
+    case dashboard = "Dashboard"
     case inventory = "Inventory"
     case checklists = "Checklists"
     case clockInOut = "Clock In/Out"
@@ -52,6 +53,7 @@ enum TabItem: String, CaseIterable {
     
     var icon: String {
         switch self {
+        case .dashboard: return "house.fill"
         case .inventory: return "shippingbox.fill"
         case .checklists: return "checklist"
         case .clockInOut: return "clock.fill"
@@ -66,11 +68,11 @@ enum TabItem: String, CaseIterable {
     static func visibleTabs(for viewState: AppCoordinator.ViewState) -> [TabItem] {
         switch viewState {
         case .publicView:
-            return [.inventory, .checklists, .clockInOut]
+            return [.dashboard, .inventory, .checklists, .clockInOut]
         case .employeeView:
-            return [.inventory, .checklists, .clockInOut, .tips]
+            return [.dashboard, .inventory, .checklists, .clockInOut, .tips]
         case .managerView:
-            return [.inventory, .checklists, .clockInOut, .tips, .employees, .reports, .payroll, .settings]
+            return [.dashboard, .inventory, .checklists, .clockInOut, .tips, .employees, .reports, .payroll, .settings]
         }
     }
 }
