@@ -68,14 +68,17 @@ struct ChecklistsView: View {
             NavigationStack {
                 AddEditChecklistView()
             }
+            .frame(minWidth: 480, idealWidth: 520, minHeight: 480, idealHeight: 560)
         }
         .sheet(item: $editingChecklist) { checklist in
             NavigationStack {
                 AddEditChecklistView(checklist: checklist)
             }
+            .frame(minWidth: 480, idealWidth: 520, minHeight: 480, idealHeight: 560)
         }
         .sheet(isPresented: $showingEmployeeSelector) {
             EmployeeSelectorView(task: selectedTask)
+                .frame(minWidth: 420, idealWidth: 460, minHeight: 400, idealHeight: 480)
         }
     }
     
@@ -277,8 +280,7 @@ struct EmployeeSelectorView: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(DesignSystem.Colors.background)
+            .formStyle(.grouped)
             .navigationTitle("Who completed this?")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -370,8 +372,7 @@ struct AddEditChecklistView: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(DesignSystem.Colors.background)
+        .formStyle(.grouped)
         .navigationTitle(checklist == nil ? "New Checklist" : "Edit Checklist")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

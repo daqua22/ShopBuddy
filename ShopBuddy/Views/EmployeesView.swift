@@ -37,6 +37,14 @@ struct EmployeesView: View {
         guard let selectedEmployeeID else { return nil }
         return allEmployees.first { $0.id.uuidString == selectedEmployeeID }
     }
+
+    private var activeEmployeeCount: Int {
+        allEmployees.filter(\.isActive).count
+    }
+
+    private var clockedInEmployeeCount: Int {
+        allEmployees.filter(\.isClockedIn).count
+    }
     
     @ViewBuilder
     var body: some View {
@@ -95,25 +103,17 @@ struct EmployeesView: View {
     #if os(macOS)
     private var macBody: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 12) {
                 Text(searchText.isEmpty ? "Team Members" : "Search Results")
                     .font(DesignSystem.Typography.headline)
                     .foregroundColor(DesignSystem.Colors.primary)
                 Spacer()
-                Text("\(filteredEmployees.count)")
-                    .font(DesignSystem.Typography.caption)
-                    .foregroundColor(DesignSystem.Colors.secondary)
-                    .monospacedDigit()
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(DesignSystem.Colors.surface.opacity(0.8))
-                    )
+                employeeStatPill(title: "Shown", value: filteredEmployees.count, color: DesignSystem.Colors.primary)
+                employeeStatPill(title: "Active", value: activeEmployeeCount, color: DesignSystem.Colors.success)
+                employeeStatPill(title: "Clocked In", value: clockedInEmployeeCount, color: DesignSystem.Colors.accent)
             }
             .padding(.horizontal, DesignSystem.Spacing.grid_2)
-            .padding(.top, DesignSystem.Spacing.grid_1)
-            .padding(.bottom, DesignSystem.Spacing.grid_1)
+            .padding(.vertical, DesignSystem.Spacing.grid_2)
 
             Divider()
                 .overlay(DesignSystem.Colors.glassStroke.opacity(0.45))
@@ -167,6 +167,7 @@ struct EmployeesView: View {
                 }
             }
         }
+        .macPagePadding(horizontal: DesignSystem.Spacing.grid_1, vertical: DesignSystem.Spacing.grid_1)
         .liquidBackground()
         .navigationTitle("Employees")
         .searchable(text: $searchText, prompt: "Search employees")
@@ -232,6 +233,24 @@ struct EmployeesView: View {
             }
             .frame(minWidth: 520, minHeight: 600)
         }
+    }
+
+    private func employeeStatPill(title: String, value: Int, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(DesignSystem.Typography.caption)
+                .foregroundColor(DesignSystem.Colors.secondary)
+            Text("\(value)")
+                .font(DesignSystem.Typography.headline)
+                .foregroundColor(color)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(DesignSystem.Colors.surface.opacity(0.8))
+        )
     }
 
     private func macEmployeeRow(_ employee: Employee) -> some View {
@@ -431,6 +450,8 @@ struct AddEditEmployeeView: View {
     @State private var role: EmployeeRole = .employee
     @State private var hourlyWage = ""
     @State private var isActive = true
+    @State private var birthday: Date? = nil
+    @State private var hasBirthday = false
     
     @State private var showError = false
     @State private var errorMessage = ""
@@ -443,6 +464,8 @@ struct AddEditEmployeeView: View {
             _role = State(initialValue: employee.role)
             _hourlyWage = State(initialValue: employee.hourlyWage?.description ?? "")
             _isActive = State(initialValue: employee.isActive)
+            _birthday = State(initialValue: employee.birthday)
+            _hasBirthday = State(initialValue: employee.birthday != nil)
         }
     }
     
@@ -472,6 +495,25 @@ struct AddEditEmployeeView: View {
                     #else
                     TextField("Hourly Wage (optional)", text: $hourlyWage)
                     #endif
+                }
+
+                Section("Personal") {
+                    Toggle("Birthday", isOn: $hasBirthday)
+                        .onChange(of: hasBirthday) { _, newValue in
+                            if newValue && birthday == nil {
+                                birthday = Date()
+                            }
+                        }
+                    if hasBirthday {
+                        DatePicker(
+                            "Date",
+                            selection: Binding(
+                                get: { birthday ?? Date() },
+                                set: { birthday = $0 }
+                            ),
+                            displayedComponents: .date
+                        )
+                    }
                 }
                 
                 if let employee {
@@ -518,7 +560,7 @@ struct AddEditEmployeeView: View {
                     }
                 }
             }
-            .liquidFormChrome()
+            .formStyle(.grouped)
             .navigationTitle(employee == nil ? "Add Employee" : "Edit Employee")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -584,10 +626,10 @@ struct AddEditEmployeeView: View {
         }
 
         if !normalizedPIN.isEmpty {
-            let duplicatePINExists = allEmployees.contains { existing in
+            let duplicatePINExists = allEmployees.contains(where: { (existing: Employee) in
                 let isSameEmployee = employee.map { existing.id == $0.id } ?? false
                 return !isSameEmployee && existing.matchesPIN(normalizedPIN)
-            }
+            })
             guard !duplicatePINExists else {
                 errorMessage = "PIN is already assigned to another employee"
                 showError = true
@@ -624,6 +666,7 @@ struct AddEditEmployeeView: View {
             }
             employee.role = role
             employee.hourlyWage = wage
+            employee.birthday = hasBirthday ? birthday : nil
             employee.isActive = isActive
         } else {
             // Create new employee
@@ -631,7 +674,8 @@ struct AddEditEmployeeView: View {
                 name: trimmedName,
                 pin: normalizedPIN,
                 role: role,
-                hourlyWage: wage
+                hourlyWage: wage,
+                birthday: hasBirthday ? birthday : nil
             )
             modelContext.insert(newEmployee)
         }

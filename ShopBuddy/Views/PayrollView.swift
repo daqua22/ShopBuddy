@@ -51,11 +51,13 @@ struct PayrollView: View {
             NavigationStack {
                 CreatePayrollView()
             }
+            .frame(minWidth: 480, idealWidth: 520, minHeight: 520, idealHeight: 560)
         }
         .sheet(item: $selectedPeriod) { period in
             NavigationStack {
                 PayrollDetailView(period: period)
             }
+            .frame(minWidth: 480, idealWidth: 520, minHeight: 520, idealHeight: 560)
         }
     }
     
@@ -223,8 +225,7 @@ struct CreatePayrollView: View {
                     .lineLimit(3...6)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(DesignSystem.Colors.background)
+        .formStyle(.grouped)
         .navigationTitle("Create Payroll")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -324,8 +325,7 @@ struct PayrollDetailView: View {
                     }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(DesignSystem.Colors.background)
+        .formStyle(.grouped)
         .navigationTitle("Payroll Details")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

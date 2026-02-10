@@ -263,6 +263,33 @@ extension View {
         )
         #endif
     }
+
+    /// Standardized safe-area spacing for macOS pages.
+    func macPagePadding(
+        horizontal: CGFloat = DesignSystem.Spacing.grid_2,
+        vertical: CGFloat = DesignSystem.Spacing.grid_1
+    ) -> some View {
+        #if os(macOS)
+        return AnyView(
+            safeAreaPadding(.horizontal, horizontal)
+                .safeAreaPadding(.vertical, vertical)
+        )
+        #else
+        return AnyView(self)
+        #endif
+    }
+
+    /// Standardized card-like section wrapper for macOS.
+    func macSectionCardPadding() -> some View {
+        #if os(macOS)
+        return AnyView(
+            padding(DesignSystem.Spacing.grid_2)
+                .glassCard()
+        )
+        #else
+        return AnyView(self)
+        #endif
+    }
 }
 
 #if os(macOS)

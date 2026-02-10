@@ -12,26 +12,44 @@ import SwiftData
 struct ShopBuddyApp: App {
     
     @State private var coordinator = AppCoordinator()
-    
+    @AppStorage("appTheme") private var selectedTheme: String = AppTheme.system.rawValue
+
+    private var currentTheme: AppTheme {
+        AppTheme(rawValue: selectedTheme) ?? .system
+    }
+
+    let modelContainer: ModelContainer
+
+    init() {
+        let schema = Schema([
+            Employee.self,
+            Shift.self,
+            InventoryCategory.self,
+            InventoryLocation.self,
+            InventoryItem.self,
+            ChecklistTemplate.self,
+            ChecklistTask.self,
+            DailyTips.self,
+            PayrollPeriod.self,
+            AppSettings.self
+        ])
+        let config = ModelConfiguration(isStoredInMemoryOnly: false)
+        do {
+            let container = try ModelContainer(for: schema, configurations: config)
+
+            self.modelContainer = container
+        } catch {
+            fatalError("Failed to create ModelContainer: \(error)")
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(coordinator)
-                .modelContainer(for: [
-                    Employee.self,
-                    Shift.self,
-                    InventoryCategory.self,
-                    InventoryLocation.self,
-                    InventoryItem.self,
-                    ChecklistTemplate.self,
-                    ChecklistTask.self,
-                    DailyTips.self,
-                    PayrollPeriod.self,
-                    AppSettings.self
-                ])
-                #if os(iOS)
-                .preferredColorScheme(.dark)
-                #endif
+                .modelContainer(modelContainer)
+                .preferredColorScheme(currentTheme.colorScheme)
+                .tint(currentTheme.accentColor)
         }
         #if os(macOS)
         .commands {

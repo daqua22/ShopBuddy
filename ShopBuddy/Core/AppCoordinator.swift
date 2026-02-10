@@ -20,7 +20,7 @@ final class AppCoordinator {
     }
 
     func login(with pin: String, employees: [Employee]) -> Bool {
-        guard let employee = employees.first(where: { $0.pin == pin && $0.isActive }) else { return false }
+        guard let employee = employees.first(where: { $0.matchesPIN(pin) && $0.isActive }) else { return false }
         currentEmployee = employee
         isAuthenticated = true
         switch employee.role {
@@ -70,7 +70,7 @@ enum TabItem: String, CaseIterable {
         case .employeeView:
             return [.inventory, .checklists, .clockInOut, .tips]
         case .managerView:
-            return [.inventory, .checklists, .clockInOut, .tips, .employees, .reports, .payroll]
+            return [.inventory, .checklists, .clockInOut, .tips, .employees, .reports, .payroll, .settings]
         }
     }
 }

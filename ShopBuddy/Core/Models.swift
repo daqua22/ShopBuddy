@@ -24,6 +24,7 @@ final class Employee {
     var pin: String
     var roleRaw: String
     var hourlyWage: Double?
+    var birthday: Date?
     var createdAt: Date
     var isActive: Bool
     
@@ -35,12 +36,13 @@ final class Employee {
         set { roleRaw = newValue.rawValue }
     }
     
-    init(name: String, pin: String, role: EmployeeRole, hourlyWage: Double? = nil) {
+    init(name: String, pin: String, role: EmployeeRole, hourlyWage: Double? = nil, birthday: Date? = nil) {
         self.id = UUID()
         self.name = name
         self.pin = pin
         self.roleRaw = role.rawValue
         self.hourlyWage = hourlyWage
+        self.birthday = birthday
         self.createdAt = Date()
         self.isActive = true
         self.shifts = []
@@ -52,6 +54,16 @@ final class Employee {
     
     var currentShift: Shift? {
         shifts.first { $0.clockOutTime == nil }
+    }
+
+    /// Centralized PIN write path so auth storage can be upgraded later.
+    func setPIN(_ newPIN: String) {
+        pin = newPIN
+    }
+
+    /// Centralized PIN compare path so auth logic stays decoupled from raw storage.
+    func matchesPIN(_ candidatePIN: String) -> Bool {
+        pin == candidatePIN
     }
 }
 
@@ -175,6 +187,15 @@ final class Shift {
         let hours = Int(hoursWorked)
         let minutes = Int((hoursWorked - Double(hours)) * 60)
         return String(format: "%dh %02dm", hours, minutes)
+    }
+
+    /// Returns the overlap between this shift and a date range in hours.
+    func hoursWorked(in range: DateRange) -> Double {
+        let shiftEnd = clockOutTime ?? Date()
+        let overlapStart = max(clockInTime, range.start)
+        let overlapEnd = min(shiftEnd, range.end)
+        guard overlapEnd > overlapStart else { return 0 }
+        return overlapEnd.timeIntervalSince(overlapStart) / 3600.0
     }
 }
 

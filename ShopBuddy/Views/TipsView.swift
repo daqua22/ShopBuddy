@@ -60,6 +60,7 @@ struct TipsView: View {
             NavigationStack {
                 AddDailyTipsView()
             }
+            .frame(minWidth: 480, idealWidth: 520, minHeight: 480, idealHeight: 520)
         }
         .sheet(isPresented: $showingDateRangePicker) {
             DateRangePickerView(selectedRange: $selectedDateRange)
@@ -395,8 +396,7 @@ struct AddDailyTipsView: View {
                     .lineLimit(3...6)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(DesignSystem.Colors.background)
+        .formStyle(.grouped)
         .navigationTitle("Add Tips")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

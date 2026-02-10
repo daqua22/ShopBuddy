@@ -3,12 +3,28 @@ import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Central design system for ShopBuddy
 enum DesignSystem {
     
     // MARK: - Colors
     enum Colors {
+        #if os(macOS)
+        static var background: Color { Color(nsColor: .windowBackgroundColor) }
+        static var surface: Color { Color(nsColor: .controlBackgroundColor) }
+        static var surfaceElevated: Color { Color(nsColor: .underPageBackgroundColor) }
+        static var primary: Color { Color.primary }
+        static var secondary: Color { Color.secondary }
+        static var tertiary: Color { Color.secondary.opacity(0.72) }
+        static var accent: Color { Color.accentColor }
+        static var success: Color { Color(red: 0.16, green: 0.66, blue: 0.33) }
+        static var warning: Color { Color(red: 0.86, green: 0.49, blue: 0.11) }
+        static var error: Color { Color(red: 0.78, green: 0.24, blue: 0.24) }
+        static var glassStroke: Color { Color.primary.opacity(0.14) }
+        #else
         static let background = Color.black
         static let surface = Color(white: 0.1)
         static let surfaceElevated = Color(white: 0.15)
@@ -20,6 +36,7 @@ enum DesignSystem {
         static let warning = Color.orange
         static let error = Color.red
         static let glassStroke = Color.white.opacity(0.15)
+        #endif
     }
     
     // MARK: - Spacing
@@ -87,6 +104,33 @@ enum DesignSystem {
     }
     
     // MARK: - Components
+    struct LiquidBackdrop: View {
+        var body: some View {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Colors.background.opacity(0.95),
+                        Colors.surface.opacity(0.85)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                Circle()
+                    .fill(Colors.accent.opacity(0.16))
+                    .frame(width: 360, height: 360)
+                    .blur(radius: 100)
+                    .offset(x: -150, y: -180)
+
+                Circle()
+                    .fill(Colors.success.opacity(0.1))
+                    .frame(width: 320, height: 320)
+                    .blur(radius: 90)
+                    .offset(x: 170, y: 210)
+            }
+        }
+    }
+
     struct GlassCard<Content: View>: View {
         let content: Content
         

@@ -1,6 +1,8 @@
 import SwiftUI
 import SwiftData
+import SwiftData
 import Combine
+import Foundation
 
 private enum InventoryItemFilter: String, CaseIterable, Identifiable {
     case visible = "Visible"
@@ -186,12 +188,18 @@ struct InventoryView: View {
     @State private var newCategoryName = ""
     @State private var newCategoryEmoji = "📦"
     @State private var editingCategory: InventoryCategory?
+    @State private var showingAddLocationFromSidebar = false
+    @State private var sidebarNewLocationName = ""
+    @State private var sidebarNewLocationEmoji = "📍"
+    @State private var expandedCategories: Set<String> = []
     @State private var searchText = ""
     @State private var selectedItemDestination: InventoryItemSearchResult?
     @State private var selectedMacItemID: String?
     @SceneStorage("inventory.selectedCategoryID") private var selectedCategoryID: String?
+    @SceneStorage("inventory.selectedLocationID") private var selectedLocationID: String?
     @FocusState private var isSearchFieldFocused: Bool
     @State private var isViewActive = false
+    @State private var forceRefreshID = UUID()
 
     private var totalCategoryItemCount: Int {
         categories.reduce(into: 0) { partialResult, category in
@@ -293,9 +301,18 @@ struct InventoryView: View {
                     .help("Add Category (\u{2318}\u{21E7}N)")
 
                     Button {
+                        showingAddLocationFromSidebar = true
+                    } label: {
+                        Image(systemName: "mappin.and.ellipse")
+                    }
+                    .keyboardShortcut("n", modifiers: [.command, .option])
+                    .help("Add Location (\u{2318}\u{2325}N)")
+                    .disabled(selectedCategory == nil)
+
+                    Button {
                         NotificationCenter.default.post(name: .shopBuddyInventoryAddItemCommand, object: nil)
                     } label: {
-                        Image(systemName: "shippingbox.badge.plus")
+                        Label("Add Item", systemImage: "plus")
                     }
                     .keyboardShortcut("n", modifiers: [.command])
                     .help("Add Item (\u{2318}N)")
@@ -335,12 +352,40 @@ struct InventoryView: View {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     modelContext.insert(cat)
                 }
+                searchText = ""
+                selectedCategoryID = cat.id.uuidString
+                expandedCategories.insert(cat.id.uuidString)
                 newCategoryName = ""
                 newCategoryEmoji = "📦"
                 do {
                     try modelContext.save()
                 } catch {
                     print("Failed to save category: \(error)")
+                    DesignSystem.HapticFeedback.trigger(.error)
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddLocationFromSidebar) {
+            AddLocationSheet(locationName: $sidebarNewLocationName, locationEmoji: $sidebarNewLocationEmoji) {
+                let trimmedName = sidebarNewLocationName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedName.isEmpty, let category = selectedCategory else { return }
+
+                let location = InventoryLocation(name: trimmedName, emoji: sidebarNewLocationEmoji)
+                location.category = category
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    modelContext.insert(location)
+                }
+
+                sidebarNewLocationName = ""
+                sidebarNewLocationEmoji = "📍"
+
+                // Auto-expand the category so the new location is visible
+                expandedCategories.insert(category.id.uuidString)
+
+                do {
+                    try modelContext.save()
+                } catch {
+                    print("Failed to save location: \(error)")
                     DesignSystem.HapticFeedback.trigger(.error)
                 }
             }
@@ -377,8 +422,20 @@ struct InventoryView: View {
         .onChange(of: allInventoryItems.count) { _, _ in
             pruneHiddenItemStorage()
         }
-        .onChange(of: selectedCategoryID) { _, _ in
+        .onChange(of: selectedCategoryID) { _, newValue in
             selectedMacItemID = nil
+            // When switching categories, clear location filter unless the location belongs to the new category
+            if let selectedLocationID, let newValue {
+                let locationBelongs = categories
+                    .first(where: { $0.id.uuidString == newValue })?
+                    .locations
+                    .contains(where: { $0.id.uuidString == selectedLocationID }) ?? false
+                if !locationBelongs {
+                    self.selectedLocationID = nil
+                }
+            } else if newValue == nil {
+                selectedLocationID = nil
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddCategoryCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
@@ -402,31 +459,48 @@ struct InventoryView: View {
             deleteSelectedCategory()
         }
         #endif
+    .id(forceRefreshID)
+    .onReceive(NotificationCenter.default.publisher(for: Notification.Name("NSUndoManagerDidUndoChangeNotification"))) { _ in
+        forceRefreshID = UUID()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: Notification.Name("NSUndoManagerDidRedoChangeNotification"))) { _ in
+        forceRefreshID = UUID()
+    }
     }
 
     #if os(macOS)
     private var macInventorySplitView: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
-                inventoryHeader
-
-                Divider()
-                    .overlay(DesignSystem.Colors.glassStroke.opacity(0.45))
-
                 List(selection: $selectedCategoryID) {
                     macCategoryRows
                 }
                 .listStyle(.sidebar)
+                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .liquidListChrome()
                 .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.38))
+                .onChange(of: selectedLocationID) { _, newLocID in
+                    // When a location is selected from the sidebar, auto-select its parent category
+                    guard let newLocID else { return }
+                    for category in categories {
+                        if category.locations.contains(where: { $0.id.uuidString == newLocID }) {
+                            if selectedCategoryID != category.id.uuidString {
+                                selectedCategoryID = category.id.uuidString
+                            }
+                            break
+                        }
+                    }
+                }
             }
-            .navigationSplitViewColumnWidth(min: 240, ideal: 290)
+            .macPagePadding(horizontal: DesignSystem.Spacing.grid_2, vertical: DesignSystem.Spacing.grid_1)
+            .navigationSplitViewColumnWidth(min: 260, ideal: 320)
         } detail: {
             if let selectedCategory {
                 MacCategoryItemDetailView(
                     category: selectedCategory,
                     searchText: $searchText,
-                    selectedItemID: $selectedMacItemID
+                    selectedItemID: $selectedMacItemID,
+                    selectedLocationFilterID: $selectedLocationID
                 )
             } else {
                 ContentUnavailableView {
@@ -443,6 +517,7 @@ struct InventoryView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .liquidBackground()
+                .padding(DesignSystem.Spacing.grid_3)
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -479,36 +554,106 @@ struct InventoryView: View {
         }
 
         ForEach(filteredCategories) { category in
-            HStack(spacing: 10) {
-                Text(category.emoji)
-                    .font(.system(size: 24))
-                    .onLongPressGesture {
-                        if coordinator.isManager {
-                            editingCategory = category
+            DisclosureGroup(isExpanded: Binding(
+                get: { expandedCategories.contains(category.id.uuidString) },
+                set: { isExpanded in
+                    if isExpanded {
+                        expandedCategories.insert(category.id.uuidString)
+                    } else {
+                        expandedCategories.remove(category.id.uuidString)
+                    }
+                }
+            )) {
+                // "All Locations" row — selects the category with no location filter
+                Button {
+                    selectedLocationID = nil
+                    selectedCategoryID = category.id.uuidString
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "tray.2")
+                            .foregroundColor(.secondary)
+                        Text("All Locations")
+                            .font(DesignSystem.Typography.body)
+                            .foregroundColor(DesignSystem.Colors.primary)
+                        Spacer()
+                        Text("\(category.totalItemCount)")
+                            .font(DesignSystem.Typography.caption)
+                            .monospacedDigit()
+                            .foregroundColor(DesignSystem.Colors.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                // Individual location rows
+                ForEach(category.locations.sorted(by: { $0.name < $1.name })) { location in
+                    Button {
+                        selectedCategoryID = category.id.uuidString
+                        selectedLocationID = location.id.uuidString
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(location.emoji)
+                                .font(.system(size: 14))
+                            Text(location.name)
+                                .font(DesignSystem.Typography.body)
+                                .foregroundColor(
+                                    selectedLocationID == location.id.uuidString && selectedCategoryID == category.id.uuidString
+                                        ? DesignSystem.Colors.accent
+                                        : DesignSystem.Colors.primary
+                                )
+                            Spacer()
+                            Text("\(location.items.count)")
+                                .font(DesignSystem.Typography.caption)
+                                .monospacedDigit()
+                                .foregroundColor(DesignSystem.Colors.secondary)
                         }
                     }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(category.name)
-                        .font(DesignSystem.Typography.headline)
-                        .foregroundColor(DesignSystem.Colors.primary)
-                    Text("\(category.locationCount) locations")
-                        .font(DesignSystem.Typography.caption)
-                        .foregroundColor(DesignSystem.Colors.secondary)
+                    .buttonStyle(.plain)
+                    .if(coordinator.isManager) { view in
+                        view.contextMenu {
+                            Button("Delete Location", systemImage: "trash", role: .destructive) {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    if selectedLocationID == location.id.uuidString {
+                                        selectedLocationID = nil
+                                    }
+                                    modelContext.delete(location)
+                                    try? modelContext.save()
+                                }
+                            }
+                        }
+                    }
                 }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(category.emoji)
+                        .font(.system(size: 24))
+                        .onLongPressGesture {
+                            if coordinator.isManager {
+                                editingCategory = category
+                            }
+                        }
 
-                Spacer(minLength: 10)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(category.name)
+                            .font(DesignSystem.Typography.headline)
+                            .foregroundColor(DesignSystem.Colors.primary)
+                        Text("\(category.locationCount) locations")
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundColor(DesignSystem.Colors.secondary)
+                    }
 
-                Text("\(category.totalItemCount)")
-                    .font(DesignSystem.Typography.caption)
-                    .monospacedDigit()
-                    .foregroundColor(DesignSystem.Colors.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(DesignSystem.Colors.surface.opacity(0.8))
-                    )
+                    Spacer(minLength: 10)
+
+                    Text("\(category.totalItemCount)")
+                        .font(DesignSystem.Typography.caption)
+                        .monospacedDigit()
+                        .foregroundColor(DesignSystem.Colors.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule()
+                                .fill(DesignSystem.Colors.surface.opacity(0.8))
+                        )
+                }
             }
             .padding(.vertical, 6)
             .tag(category.id.uuidString)
@@ -516,6 +661,10 @@ struct InventoryView: View {
                 view.contextMenu {
                     Button("Edit Category", systemImage: "pencil") {
                         editingCategory = category
+                    }
+                    Button("Add Location", systemImage: "mappin.and.ellipse") {
+                        selectedCategoryID = category.id.uuidString
+                        showingAddLocationFromSidebar = true
                     }
                     Divider()
                     Button("Delete Category", systemImage: "trash", role: .destructive) {
@@ -641,8 +790,7 @@ struct InventoryView: View {
                 )
         }
         .padding(.horizontal, DesignSystem.Spacing.grid_2)
-        .padding(.top, DesignSystem.Spacing.grid_1)
-        .padding(.bottom, DesignSystem.Spacing.grid_1)
+        .padding(.vertical, DesignSystem.Spacing.grid_2)
     }
     #endif
 
@@ -794,7 +942,7 @@ private struct MacCategoryItemDetailView: View {
     @State private var showingLocationPicker = false
     @State private var showingAddItemSheet = false
     @State private var addItemLocationID: String?
-    @State private var selectedLocationFilterID: String?
+    @Binding var selectedLocationFilterID: String?
     @State private var isViewActive = false
 
     private var locations: [InventoryLocation] {
@@ -853,6 +1001,8 @@ private struct MacCategoryItemDetailView: View {
         return locations.first(where: { $0.id.uuidString == addItemLocationID })
     }
 
+    @State private var editingStockItem: InventoryItem?
+
     var body: some View {
         VStack(spacing: 0) {
             detailHeader
@@ -868,8 +1018,10 @@ private struct MacCategoryItemDetailView: View {
             .listRowBackground(DesignSystem.Colors.surfaceElevated.opacity(0.38))
             .animation(.easeInOut(duration: 0.2), value: filteredRecords.map { $0.item.id })
         }
+        .macPagePadding(horizontal: DesignSystem.Spacing.grid_1, vertical: DesignSystem.Spacing.grid_1)
         .sheet(item: $editingItem) { item in
             ItemSettingsSheet(item: item)
+                .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 620)
         }
         .sheet(isPresented: $showingAddLocation) {
             AddLocationSheet(locationName: $newLocationName, locationEmoji: $newLocationEmoji) {
@@ -903,7 +1055,7 @@ private struct MacCategoryItemDetailView: View {
                         }
                     }
                 }
-                .liquidFormChrome()
+                .formStyle(.grouped)
                 .navigationTitle("Choose Location")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -955,6 +1107,7 @@ private struct MacCategoryItemDetailView: View {
             guard isViewActive, coordinator.isManager else { return }
             deleteSelectedItem()
         }
+
         .onDeleteCommand {
             guard coordinator.isManager else { return }
             deleteSelectedItem()
@@ -1025,8 +1178,7 @@ private struct MacCategoryItemDetailView: View {
             .menuStyle(.borderlessButton)
         }
         .padding(.horizontal, DesignSystem.Spacing.grid_2)
-        .padding(.top, DesignSystem.Spacing.grid_1)
-        .padding(.bottom, DesignSystem.Spacing.grid_1)
+        .padding(.vertical, DesignSystem.Spacing.grid_2)
     }
 
     @ViewBuilder
@@ -1127,6 +1279,52 @@ private struct MacCategoryItemDetailView: View {
                 )
                 .contentTransition(.numericText(value: record.item.stockLevel))
                 .animation(.easeInOut(duration: 0.2), value: record.item.stockLevel)
+                .onTapGesture {
+                    if coordinator.isManager {
+                        editingStockItem = record.item
+                    }
+                }
+                .popover(isPresented: Binding(
+                    get: { editingStockItem?.id == record.item.id },
+                    set: { if !$0 { editingStockItem = nil } }
+                )) {
+                    VStack(spacing: 12) {
+                        Text("Update Stock")
+                            .font(.headline)
+                        
+                        TextField("Quantity", value: Binding(
+                            get: { record.item.stockLevel },
+                            set: { record.item.stockLevel = max(0, $0) }
+                        ), formatter: NumberFormatter.decimalFormatter)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+                        .multilineTextAlignment(.center)
+                        .onSubmit {
+                            editingStockItem = nil
+                        }
+                        
+                        HStack {
+                            Button("-1") {
+                                if record.item.stockLevel >= 1 {
+                                    record.item.stockLevel -= 1
+                                }
+                            }
+                            Button("+1") {
+                                record.item.stockLevel += 1
+                            }
+                        }
+                    }
+                    .padding()
+                    .frame(width: 160)
+                    .presentationCompactAdaptation(.popover)
+                    .onDisappear {
+                        do {
+                            try modelContext.save()
+                        } catch {
+                             print("Failed to save stock update: \(error)")
+                        }
+                    }
+                }
         }
         .padding(.vertical, 6)
     }
@@ -1735,6 +1933,7 @@ struct ItemListView: View {
         }
         .sheet(item: $editingItem) { item in
             ItemSettingsSheet(item: item)
+                .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 620)
         }
         .sheet(item: $editingAmountOnHandItem) { item in
             AmountOnHandEditorSheet(item: item)
@@ -2344,7 +2543,7 @@ struct AddInventoryItemView: View {
                     }
                 }
             }
-            .liquidFormChrome()
+            .formStyle(.grouped)
             .navigationTitle("Add Item")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -2435,7 +2634,7 @@ struct AmountOnHandEditorSheet: View {
                         .foregroundColor(DesignSystem.Colors.secondary)
                 }
             }
-            .liquidFormChrome()
+            .formStyle(.grouped)
             .navigationTitle(item.name)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -2513,7 +2712,7 @@ struct AddCategorySheet: View {
                         .padding(.vertical, 8)
                 }
             }
-            .liquidFormChrome()
+            .formStyle(.grouped)
             .navigationTitle("New Category")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -2527,11 +2726,13 @@ struct AddCategorySheet: View {
                         onSave()
                         dismiss()
                     }
-                    .disabled(categoryName.isEmpty)
+                    .disabled(categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
+        #if os(iOS)
         .presentationDetents([.medium, .large])
+        #endif
     }
 }
 
@@ -2572,7 +2773,7 @@ struct AddLocationSheet: View {
                         .padding(.vertical, 8)
                 }
             }
-            .liquidFormChrome()
+            .formStyle(.grouped)
             .navigationTitle("New Location")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -2586,11 +2787,13 @@ struct AddLocationSheet: View {
                         onSave()
                         dismiss()
                     }
-                    .disabled(locationName.isEmpty)
+                    .disabled(locationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
+        #if os(iOS)
         .presentationDetents([.medium, .large])
+        #endif
     }
 }
 
@@ -2697,8 +2900,8 @@ struct ItemSettingsSheet: View {
     init(item: InventoryItem) {
         self.item = item
         _name = State(initialValue: item.name)
-        _stockLevel = State(initialValue: String(format: item.stockLevel.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f", item.stockLevel))
-        _parLevel = State(initialValue: String(format: item.parLevel.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f", item.parLevel))
+        _stockLevel = State(initialValue: item.stockLevel == 0 ? "" : String(format: item.stockLevel.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f", item.stockLevel))
+        _parLevel = State(initialValue: item.parLevel == 0 ? "" : String(format: item.parLevel.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f", item.parLevel))
         _selectedUnit = State(initialValue: UnitType(rawValue: item.unitType) ?? .units)
         _vendor = State(initialValue: item.vendor ?? "")
         _notes = State(initialValue: item.notes ?? "")
@@ -2825,7 +3028,7 @@ struct ItemSettingsSheet: View {
                     }
                 }
             }
-            .liquidFormChrome()
+            .formStyle(.grouped)
             .navigationTitle("Item Settings")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -2850,7 +3053,11 @@ struct ItemSettingsSheet: View {
                 Text("Are you sure you want to delete \"\(item.name)\"? This action cannot be undone.")
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 620)
+        #else
         .presentationDetents([.large])
+        #endif
     }
     
     private func saveChanges() {
@@ -2905,5 +3112,15 @@ struct ItemSettingsSheet: View {
             return String(format: "%.0f", value)
         }
         return String(format: "%.1f", value)
+    }
+}
+
+extension NumberFormatter {
+    static var decimalFormatter: NumberFormatter {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimum = 0
+        formatter.maximumFractionDigits = 2
+        return formatter
     }
 }

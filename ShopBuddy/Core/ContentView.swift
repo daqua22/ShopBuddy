@@ -11,42 +11,81 @@ import Combine
 
 struct ContentView: View {
     @Environment(AppCoordinator.self) private var coordinator
+    @Environment(\.undoManager) private var undoManager
     @Environment(\.modelContext) private var modelContext
-    
+
     @Query(sort: \Employee.name) private var employees: [Employee]
-    @Query private var settings: [AppSettings]
-    
+
     @State private var selectedTab: TabItem = .inventory
+    @State private var hasCreatedManagerAccount = false
+    @State private var selectedSidebarTab: TabItem? = .inventory
+    @SceneStorage("content.selectedSidebarTabRaw") private var selectedSidebarTabRaw: String = TabItem.inventory.rawValue
     @State private var showingPINEntry = false
-    
+
     var body: some View {
         Group {
-            if employees.isEmpty {
-                OnboardingView()
+            if employees.isEmpty && !coordinator.isAuthenticated && !hasCreatedManagerAccount {
+                OnboardingView { manager in
+                    withAnimation {
+                        hasCreatedManagerAccount = true
+                        coordinator.currentEmployee = manager
+                        coordinator.isAuthenticated = true
+                        coordinator.currentViewState = .managerView(manager)
+                        selectedTab = .inventory
+                        #if os(macOS)
+                        selectedSidebarTab = .inventory
+                        #endif
+                    }
+                }
             } else {
                 mainInterface
             }
         }
         .background(DesignSystem.Colors.background.ignoresSafeArea())
+        .onAppear {
+            modelContext.undoManager = undoManager
+            normalizeTabSelection()
+        }
+        .onChange(of: visibleTabs.map(\.rawValue)) { _, _ in
+            normalizeTabSelection()
+        }
+        .onChange(of: undoManager) { _, newValue in
+            modelContext.undoManager = newValue
+        }
+        .onChange(of: selectedSidebarTab) { _, newValue in
+            #if os(macOS)
+            if let newValue {
+                selectedSidebarTabRaw = newValue.rawValue
+            }
+            #endif
+        }
     }
-    
+
+    @ViewBuilder
     private var mainInterface: some View {
-        // TabView is the root component
+        #if os(macOS)
+        macMainInterface
+        #else
+        iosMainInterface
+        #endif
+    }
+
+    private var iosMainInterface: some View {
         TabView(selection: $selectedTab) {
             ForEach(visibleTabs, id: \.self) { tab in
-                // Each tab gets its own NavigationStack
                 NavigationStack {
                     tabContent(for: tab)
                         .navigationTitle(tab.rawValue)
                         .toolbar {
-                            // LEADING: Login/Logout & User Info
+#if os(iOS)
                             ToolbarItem(placement: .topBarLeading) {
-                                if coordinator.isAuthenticated {
-                                    userInfoHeader
-                                } else {
-                                    loginButton
-                                }
+                                authToolbarContent
                             }
+#else
+                            ToolbarItem(placement: .automatic) {
+                                authToolbarContent
+                            }
+#endif
                         }
                 }
                 .tabItem {
@@ -60,24 +99,78 @@ struct ContentView: View {
         }
     }
 
-    // User info header with logout
+    #if os(macOS)
+    private var macMainInterface: some View {
+        NavigationSplitView {
+            List(selection: $selectedSidebarTab) {
+                Section("Workspace") {
+                    ForEach(sidebarPrimaryTabs, id: \.self) { tab in
+                        sidebarRow(for: tab)
+                    }
+                }
+
+                if !sidebarManagementTabs.isEmpty {
+                    Section("Management") {
+                        ForEach(sidebarManagementTabs, id: \.self) { tab in
+                            sidebarRow(for: tab)
+                        }
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(DesignSystem.Colors.background)
+            .navigationTitle("ShopBuddy")
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260)
+        } detail: {
+            tabContent(for: currentMacTab)
+                .id(currentMacTab)
+                .toolbar {
+                    ToolbarItem(placement: .automatic) {
+                        accountToolbarMenu
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(DesignSystem.Colors.background)
+        }
+        .onChange(of: selectedSidebarTab) { _, newValue in
+            if newValue == nil {
+                selectedSidebarTab = visibleTabs.first
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .sheet(isPresented: $showingPINEntry) {
+            PINEntryView()
+                .frame(minWidth: 460, minHeight: 620)
+        }
+    }
+
+    private func sidebarRow(for tab: TabItem) -> some View {
+        Label(tab.rawValue, systemImage: tab.icon)
+            .font(.system(size: 14, weight: .medium))
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                selectedSidebarTab = tab
+            }
+            .tag(Optional(tab))
+    }
+    #endif
+
     private var userInfoHeader: some View {
         HStack(spacing: 12) {
             Button {
-                withAnimation {
-                    coordinator.logout()
-                    selectedTab = .inventory
-                }
+                handleLogout()
             } label: {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundColor(DesignSystem.Colors.error)
                     .frame(width: 32, height: 32)
                     .background(DesignSystem.Colors.surface)
                     .clipShape(Circle())
             }
-            
-            VStack(alignment: .leading, spacing: 0) {
+
+            VStack(alignment: .leading, spacing: 1) {
                 Text(coordinator.currentUserDisplayName)
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DesignSystem.Colors.primary)
@@ -88,20 +181,57 @@ struct ContentView: View {
         }
     }
 
-    // Login button - matching logout style
     private var loginButton: some View {
         Button {
             showingPINEntry = true
         } label: {
             Image(systemName: "lock.fill")
-                .font(.system(size: 16, weight: .bold))
+                .font(.system(size: 15, weight: .bold))
                 .foregroundColor(DesignSystem.Colors.accent)
                 .frame(width: 32, height: 32)
                 .background(DesignSystem.Colors.surface)
                 .clipShape(Circle())
         }
+        .help("Sign In")
     }
-    
+
+    @ViewBuilder
+    private var authToolbarContent: some View {
+        if coordinator.isAuthenticated {
+            userInfoHeader
+        } else {
+            loginButton
+        }
+    }
+
+    #if os(macOS)
+    private var accountToolbarMenu: some View {
+        Menu {
+            if coordinator.isAuthenticated {
+                Label(coordinator.currentUserDisplayName, systemImage: "person.crop.circle.fill")
+                if !coordinator.currentUserRole.isEmpty {
+                    Text(coordinator.currentUserRole)
+                }
+                Divider()
+                Button("Sign Out", role: .destructive) {
+                    handleLogout()
+                }
+            } else {
+                Button("Sign In") {
+                    showingPINEntry = true
+                }
+            }
+        } label: {
+            Label(
+                coordinator.isAuthenticated ? coordinator.currentUserDisplayName : "Sign In",
+                systemImage: coordinator.isAuthenticated ? "person.crop.circle" : "lock.fill"
+            )
+            .labelStyle(.titleAndIcon)
+        }
+        .help(coordinator.isAuthenticated ? "Account" : "Sign In")
+    }
+    #endif
+
     @ViewBuilder
     private func tabContent(for tab: TabItem) -> some View {
         switch tab {
@@ -115,109 +245,194 @@ struct ContentView: View {
         case .settings: SettingsView()
         }
     }
-    
+
     private var visibleTabs: [TabItem] {
         TabItem.visibleTabs(for: coordinator.currentViewState)
+    }
+
+    private var sidebarPrimaryTabs: [TabItem] {
+        let preferredOrder: [TabItem] = [.inventory, .checklists, .clockInOut, .tips]
+        return preferredOrder.filter(visibleTabs.contains)
+    }
+
+    private var sidebarManagementTabs: [TabItem] {
+        let preferredOrder: [TabItem] = [.employees, .reports, .payroll, .settings]
+        return preferredOrder.filter(visibleTabs.contains)
+    }
+
+    private var currentMacTab: TabItem {
+        if let selectedSidebarTab, visibleTabs.contains(selectedSidebarTab) {
+            return selectedSidebarTab
+        }
+        return visibleTabs.first ?? .inventory
+    }
+
+    private func normalizeTabSelection() {
+        #if os(macOS)
+        if selectedSidebarTab == nil,
+           let restored = TabItem(rawValue: selectedSidebarTabRaw),
+           visibleTabs.contains(restored) {
+            selectedSidebarTab = restored
+        }
+
+        if let selectedSidebarTab, visibleTabs.contains(selectedSidebarTab) {
+            selectedSidebarTabRaw = selectedSidebarTab.rawValue
+            return
+        }
+
+        selectedSidebarTab = visibleTabs.first
+        selectedSidebarTabRaw = selectedSidebarTab?.rawValue ?? TabItem.inventory.rawValue
+        #else
+        if !visibleTabs.contains(selectedTab) {
+            selectedTab = visibleTabs.first ?? .inventory
+        }
+        #endif
+    }
+
+    private func handleLogout() {
+        withAnimation {
+            coordinator.logout()
+            selectedTab = .inventory
+            selectedSidebarTab = .inventory
+        }
     }
 }
 
 // MARK: - Onboarding View
 struct OnboardingView: View {
-    
+
     @Environment(\.modelContext) private var modelContext
+    @Query private var settings: [AppSettings]
+
+    let onManagerCreated: (Employee) -> Void
+
     @State private var managerName = ""
     @State private var managerPIN = ""
     @State private var showError = false
     @State private var errorMessage = ""
-    
+
     var body: some View {
         VStack(spacing: DesignSystem.Spacing.grid_4) {
-            Spacer()
-            
+            Spacer(minLength: 24)
+
             VStack(spacing: DesignSystem.Spacing.grid_2) {
                 Image(systemName: "cup.and.saucer.fill")
-                    .font(.system(size: 80))
+                    .font(.system(size: 72))
                     .foregroundColor(DesignSystem.Colors.accent)
-                
+
                 Text("Welcome to ShopBuddy")
                     .font(DesignSystem.Typography.largeTitle)
                     .foregroundColor(DesignSystem.Colors.primary)
-                
-                Text("Let's create your manager account")
+
+                Text("Create your manager account to continue")
                     .font(DesignSystem.Typography.body)
                     .foregroundColor(DesignSystem.Colors.secondary)
             }
-            
-            Spacer()
-            
-            VStack(spacing: DesignSystem.Spacing.grid_3) {
-                VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_1) {
-                    Text("Manager Name")
-                        .font(DesignSystem.Typography.headline)
-                        .foregroundColor(DesignSystem.Colors.primary)
-                    
-                    TextField("Enter your name", text: $managerName)
-                        .textFieldStyle(CustomTextFieldStyle())
+
+            DesignSystem.GlassCard {
+                VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_2) {
+                    VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_1) {
+                        Text("Manager Name")
+                            .font(DesignSystem.Typography.headline)
+                            .foregroundColor(DesignSystem.Colors.primary)
+
+                        TextField("Enter your name", text: $managerName)
+                            .textFieldStyle(CustomTextFieldStyle())
+                            .onChange(of: managerName) { _, _ in
+                                showError = false
+                            }
+                    }
+
+                    VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_1) {
+                        Text("4-Digit PIN")
+                            .font(DesignSystem.Typography.headline)
+                            .foregroundColor(DesignSystem.Colors.primary)
+
+                        SecureField("Enter 4-digit PIN", text: $managerPIN)
+                            .textFieldStyle(CustomTextFieldStyle())
+                            .onChange(of: managerPIN) { _, newValue in
+                                managerPIN = String(newValue.filter(\.isNumber).prefix(4))
+                                showError = false
+                            }
+                            #if os(iOS)
+                            .keyboardType(.numberPad)
+                            #endif
+                    }
+
+                    Button {
+                        createManager()
+                    } label: {
+                        Text("Create Manager Account")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(!canCreateManager)
+
+                    if showError {
+                        Text(errorMessage)
+                            .font(DesignSystem.Typography.footnote)
+                            .foregroundColor(DesignSystem.Colors.error)
+                    }
                 }
-                
-                VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_1) {
-                    Text("4-Digit PIN")
-                        .font(DesignSystem.Typography.headline)
-                        .foregroundColor(DesignSystem.Colors.primary)
-                    
-                    SecureField("Enter 4-digit PIN", text: $managerPIN)
-                        .textFieldStyle(CustomTextFieldStyle())
-                        #if os(iOS)
-                        .keyboardType(.numberPad)
-                        #endif
-                }
-                
-                if showError {
-                    Text(errorMessage)
-                        .font(DesignSystem.Typography.footnote)
-                        .foregroundColor(DesignSystem.Colors.error)
-                }
-                
-                Button {
-                    createManager()
-                } label: {
-                    Text("Create Manager Account")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(managerName.isEmpty || managerPIN.isEmpty)
+                .padding(DesignSystem.Spacing.grid_3)
             }
-            .padding(DesignSystem.Spacing.grid_3)
-            .glassCard()
-            .padding(DesignSystem.Spacing.grid_4)
-            
-            Spacer()
+            .padding(.horizontal, DesignSystem.Spacing.grid_4)
+            .frame(maxWidth: 680)
+
+            Spacer(minLength: 24)
         }
-        .background(DesignSystem.Colors.background.ignoresSafeArea())
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .liquidBackground()
+        .alert("Unable to Create Manager", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
     }
-    
+
+    private var canCreateManager: Bool {
+        let trimmedName = managerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedName.isEmpty && managerPIN.count == 4 && managerPIN.allSatisfy(\.isNumber)
+    }
+
     private func createManager() {
-        guard managerPIN.count == 4 && managerPIN.allSatisfy({ $0.isNumber }) else {
+        let trimmedName = managerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPIN = managerPIN.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedName.isEmpty else {
+            errorMessage = "Name cannot be empty"
+            showError = true
+            DesignSystem.HapticFeedback.trigger(.error)
+            return
+        }
+
+        guard normalizedPIN.count == 4 && normalizedPIN.allSatisfy({ $0.isNumber }) else {
             errorMessage = "PIN must be exactly 4 digits"
             showError = true
             DesignSystem.HapticFeedback.trigger(.error)
             return
         }
-        
+
         let manager = Employee(
-            name: managerName,
-            pin: managerPIN,
+            name: trimmedName,
+            pin: normalizedPIN,
             role: .manager,
             hourlyWage: nil
         )
-        
+
         modelContext.insert(manager)
-        let settings = AppSettings()
-        modelContext.insert(settings)
-        
+        if settings.isEmpty {
+            modelContext.insert(AppSettings())
+        }
+
         do {
             try modelContext.save()
             DesignSystem.HapticFeedback.trigger(.success)
+            onManagerCreated(manager)
+            managerName = ""
+            managerPIN = ""
+            showError = false
+            errorMessage = ""
         } catch {
             errorMessage = "Failed to create account: \(error.localizedDescription)"
             showError = true
@@ -226,149 +441,161 @@ struct OnboardingView: View {
     }
 }
 
-// MARK: - PIN Entry View - FULLSCREEN
+// MARK: - PIN Entry View
 struct PINEntryView: View {
-    
+
     @Environment(\.dismiss) private var dismiss
     @Environment(AppCoordinator.self) private var coordinator
-    @Environment(\.modelContext) private var modelContext
-    
+
     @Query(sort: \Employee.name) private var employees: [Employee]
-    
+
     @State private var enteredPIN = ""
     @State private var showError = false
-    
+    @FocusState private var isPINFieldFocused: Bool
+
+    private let keypadLayout: [[String]] = [
+        ["1", "2", "3"],
+        ["4", "5", "6"],
+        ["7", "8", "9"],
+        ["", "0", "⌫"]
+    ]
+
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                DesignSystem.Colors.background.ignoresSafeArea()
-                
-                VStack(spacing: 0) {
-                    // Cancel button at top
+        ZStack {
+            DesignSystem.LiquidBackdrop()
+                .ignoresSafeArea()
+
+            DesignSystem.GlassCard {
+                VStack(spacing: DesignSystem.Spacing.grid_3) {
                     HStack {
                         Spacer()
                         Button {
                             dismiss()
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 32))
+                                .font(.system(size: 24))
                                 .foregroundColor(DesignSystem.Colors.secondary)
                         }
-                        .padding(DesignSystem.Spacing.grid_3)
+                        .buttonStyle(.plain)
                     }
-                    
-                    Spacer()
-                    
-                    // PIN Entry Content
-                    VStack(spacing: DesignSystem.Spacing.grid_3) {
-                        VStack(spacing: DesignSystem.Spacing.grid_2) {
-                            Image(systemName: "lock.fill")
-                                .font(.system(size: 60))
-                                .foregroundColor(DesignSystem.Colors.accent)
-                            
-                            Text("Enter Your PIN")
-                                .font(DesignSystem.Typography.title)
-                                .foregroundColor(DesignSystem.Colors.primary)
-                            
-                            Text("Enter your 4-digit PIN to continue")
-                                .font(DesignSystem.Typography.body)
-                                .foregroundColor(DesignSystem.Colors.secondary)
+
+                    VStack(spacing: DesignSystem.Spacing.grid_2) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 54))
+                            .foregroundColor(DesignSystem.Colors.accent)
+
+                        Text("Enter Your PIN")
+                            .font(DesignSystem.Typography.title)
+                            .foregroundColor(DesignSystem.Colors.primary)
+
+                        Text("Use your 4-digit PIN to sign in")
+                            .font(DesignSystem.Typography.body)
+                            .foregroundColor(DesignSystem.Colors.secondary)
+                    }
+
+                    PINDotIndicator(enteredCount: enteredPIN.count)
+                        .padding(.vertical, DesignSystem.Spacing.grid_1)
+                        .onTapGesture {
+                            #if os(macOS)
+                            isPINFieldFocused = true
+                            #endif
                         }
-                        
-                        // PIN display circles
-                        HStack(spacing: DesignSystem.Spacing.grid_3) {
-                            ForEach(0..<4, id: \.self) { index in
-                                Circle()
-                                    .fill(index < enteredPIN.count ? DesignSystem.Colors.accent : DesignSystem.Colors.surface)
-                                    .frame(width: 20, height: 20)
-                                    .overlay(
-                                        Circle()
-                                            .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 2)
-                                    )
+
+                    if showError {
+                        Text("Invalid PIN. Please try again.")
+                            .font(DesignSystem.Typography.body)
+                            .foregroundColor(DesignSystem.Colors.error)
+                    }
+
+                    #if os(macOS)
+                    TextField("", text: $enteredPIN)
+                        .textFieldStyle(.plain)
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                        .focused($isPINFieldFocused)
+                        .onChange(of: enteredPIN) { _, newValue in
+                            enteredPIN = sanitizedPIN(from: newValue)
+                            if enteredPIN.count == 4 {
+                                attemptLogin()
                             }
                         }
-                        .padding(.vertical, DesignSystem.Spacing.grid_2)
-                        
-                        if showError {
-                            Text("Invalid PIN. Please try again.")
-                                .font(DesignSystem.Typography.body)
-                                .foregroundColor(DesignSystem.Colors.error)
-                                .padding(.horizontal, DesignSystem.Spacing.grid_4)
+                    #endif
+
+                    VStack(spacing: DesignSystem.Spacing.grid_1) {
+                        ForEach(keypadLayout, id: \.self) { row in
+                            HStack(spacing: DesignSystem.Spacing.grid_1) {
+                                ForEach(row, id: \.self) { number in
+                                    pinButton(number)
+                                }
+                            }
                         }
                     }
-                    
-                    Spacer()
-                    
-                    // Number pad with responsive sizing
-                    numberPad(geometry: geometry)
-                        .padding(.horizontal, DesignSystem.Spacing.grid_2)
-                        .padding(.bottom, DesignSystem.Spacing.grid_2)
-                        .safeAreaInset(edge: .bottom) {
-                            Color.clear.frame(height: 0)
-                        }
                 }
+                .padding(DesignSystem.Spacing.grid_3)
             }
+            .frame(maxWidth: 380)
+            .padding(DesignSystem.Spacing.grid_3)
+        }
+        .onAppear {
+            #if os(macOS)
+            DispatchQueue.main.async {
+                isPINFieldFocused = true
+            }
+            #endif
         }
     }
-    
-    private func numberPad(geometry: GeometryProxy) -> some View {
-        // Calculate button size based on available width, with min/max constraints
-        let availableWidth = geometry.size.width - (DesignSystem.Spacing.grid_2 * 2)
-        let spacing = DesignSystem.Spacing.grid_2
-        let buttonSize = min(80, max(56, (availableWidth - spacing * 2) / 3))
-        let fontSize = max(24, min(32, buttonSize * 0.4))
-        
-        return VStack(spacing: spacing) {
-            ForEach([["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["", "0", "⌫"]], id: \.self) { row in
-                HStack(spacing: spacing) {
-                    ForEach(row, id: \.self) { number in
-                        Button {
-                            handleNumberPress(number)
-                        } label: {
-                            Text(number)
-                                .font(.system(size: fontSize, weight: .medium, design: .rounded))
-                                .foregroundColor(DesignSystem.Colors.primary)
-                                .frame(width: buttonSize, height: buttonSize)
-                                .frame(minWidth: 44, minHeight: 44) // Apple HIG minimum
-                                .background(number.isEmpty ? Color.clear : DesignSystem.Colors.surface)
-                                .cornerRadius(DesignSystem.CornerRadius.medium)
-                                .contentShape(Rectangle())
-                        }
-                        .disabled(number.isEmpty)
-                        .opacity(number.isEmpty ? 0 : 1)
-                    }
-                }
-            }
+
+    private func pinButton(_ number: String) -> some View {
+        Button {
+            handleNumberPress(number)
+        } label: {
+            Text(number)
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .foregroundColor(DesignSystem.Colors.primary)
+                .frame(width: 88, height: 60)
+                .background(number.isEmpty ? Color.clear : DesignSystem.Colors.surface)
+                .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
         }
+        .buttonStyle(.plain)
+        .disabled(number.isEmpty)
+        .opacity(number.isEmpty ? 0 : 1)
     }
-    
+
+    private func sanitizedPIN(from rawValue: String) -> String {
+        let digitsOnly = rawValue.filter(\.isNumber)
+        return String(digitsOnly.prefix(4))
+    }
+
     private func handleNumberPress(_ number: String) {
+        guard !number.isEmpty else { return }
         DesignSystem.HapticFeedback.trigger(.light)
-        
+
         if number == "⌫" {
             if !enteredPIN.isEmpty {
                 enteredPIN.removeLast()
             }
             showError = false
-        } else if enteredPIN.count < 4 {
-            enteredPIN.append(number)
-            
-            if enteredPIN.count == 4 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    attemptLogin()
-                }
+            return
+        }
+
+        guard enteredPIN.count < 4 else { return }
+        enteredPIN = sanitizedPIN(from: enteredPIN + number)
+
+        if enteredPIN.count == 4 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                attemptLogin()
             }
         }
     }
-    
+
     private func attemptLogin() {
         let success = coordinator.login(with: enteredPIN, employees: employees)
-        
         if success {
             dismiss()
         } else {
             showError = true
             enteredPIN = ""
+            DesignSystem.HapticFeedback.trigger(.error)
         }
     }
 }
@@ -384,7 +611,7 @@ struct CustomTextFieldStyle: TextFieldStyle {
             .cornerRadius(DesignSystem.CornerRadius.medium)
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium)
-                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    .stroke(DesignSystem.Colors.glassStroke, lineWidth: 1)
             )
     }
 }
