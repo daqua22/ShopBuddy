@@ -1,5 +1,5 @@
 //
-//  PayrollView.swift
+//  PaySummaryView.swift
 //  ShopBuddy
 //
 //  Created by Dan on 1/29/26.
@@ -8,81 +8,91 @@
 import SwiftUI
 import SwiftData
 
-struct PayrollView: View {
+struct PaySummaryView: View {
     
     @Environment(\.modelContext) private var modelContext
     
-    @Query(sort: \PayrollPeriod.startDate, order: .reverse) private var payrollPeriods: [PayrollPeriod]
+    @Query(sort: \PayPeriod.startDate, order: .reverse) private var payPeriods: [PayPeriod]
     @Query(filter: #Predicate<Employee> { $0.isActive }) private var employees: [Employee]
     @Query private var allTips: [DailyTips]
     
-    @State private var showingCreatePayroll = false
-    @State private var selectedPeriod: PayrollPeriod?
+    @State private var showingCreatePeriod = false
+    @State private var selectedPeriod: PayPeriod?
     
     var body: some View {
         ScrollView {
             VStack(spacing: DesignSystem.Spacing.grid_3) {
-                if payrollPeriods.isEmpty {
+                if payPeriods.isEmpty {
                     EmptyStateView(
                         icon: "banknote",
-                        title: "No Payroll Periods",
-                        message: "Create your first payroll period to calculate employee compensation",
-                        actionTitle: "Create Payroll",
-                        action: { showingCreatePayroll = true }
+                        title: "No Pay Periods",
+                        message: "Create a pay period to preview estimated pay",
+                        actionTitle: "New Period",
+                        action: { showingCreatePeriod = true }
                     )
                 } else {
-                    payrollPeriodsList
+                    payPeriodsList
                 }
+
+                disclaimerFooter
             }
             .padding(DesignSystem.Spacing.grid_2)
         }
         .background(DesignSystem.Colors.background.ignoresSafeArea())
-        .navigationTitle("Payroll")
+        .navigationTitle("Pay Summary")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    showingCreatePayroll = true
+                    showingCreatePeriod = true
                 } label: {
                     Image(systemName: "plus")
                 }
             }
         }
-        .sheet(isPresented: $showingCreatePayroll) {
+        .sheet(isPresented: $showingCreatePeriod) {
             NavigationStack {
-                CreatePayrollView()
+                CreatePayPeriodView()
             }
             .frame(minWidth: 480, idealWidth: 520, minHeight: 520, idealHeight: 560)
         }
         .sheet(item: $selectedPeriod) { period in
             NavigationStack {
-                PayrollDetailView(period: period)
+                PayPeriodDetailView(period: period)
             }
             .frame(minWidth: 480, idealWidth: 520, minHeight: 520, idealHeight: 560)
         }
     }
     
-    private var payrollPeriodsList: some View {
+    private var payPeriodsList: some View {
         VStack(spacing: DesignSystem.Spacing.grid_2) {
-            ForEach(payrollPeriods) { period in
-                PayrollPeriodCard(period: period) {
+            ForEach(payPeriods) { period in
+                PayPeriodCard(period: period) {
                     selectedPeriod = period
                 }
             }
         }
     }
+
+    private var disclaimerFooter: some View {
+        Text("Estimates based on logged hours and rates. For internal reference only — not a payroll document.")
+            .font(DesignSystem.Typography.caption)
+            .foregroundColor(DesignSystem.Colors.tertiary)
+            .multilineTextAlignment(.center)
+            .padding(.top, DesignSystem.Spacing.grid_2)
+    }
 }
 
-// MARK: - Payroll Period Card
-struct PayrollPeriodCard: View {
+// MARK: - Pay Period Card
+struct PayPeriodCard: View {
     
-    let period: PayrollPeriod
+    let period: PayPeriod
     let onTap: () -> Void
     
     @Query(filter: #Predicate<Employee> { $0.isActive }) private var employees: [Employee]
     @Query private var allTips: [DailyTips]
     
-    private var totalPayroll: Double {
-        calculateTotalPayroll()
+    private var estimatedTotal: Double {
+        calculatePayEstimate()
     }
     
     var body: some View {
@@ -98,19 +108,19 @@ struct PayrollPeriodCard: View {
                         
                         HStack(spacing: DesignSystem.Spacing.grid_1) {
                             if period.includeTips {
-                                Label("Tips Included", systemImage: "checkmark.circle.fill")
+                                Label("Tips Included", systemImage: "dollarsign.circle")
                                     .font(DesignSystem.Typography.caption)
                                     .foregroundColor(DesignSystem.Colors.success)
                             }
                             
-                            if period.isPaid {
-                                Label("Paid", systemImage: "checkmark.circle.fill")
+                            if period.isReviewed {
+                                Label("Reviewed", systemImage: "eye.fill")
                                     .font(DesignSystem.Typography.caption)
-                                    .foregroundColor(DesignSystem.Colors.success)
+                                    .foregroundColor(DesignSystem.Colors.accent)
                             } else {
-                                Label("Unpaid", systemImage: "clock")
+                                Label("Pending Review", systemImage: "clock")
                                     .font(DesignSystem.Typography.caption)
-                                    .foregroundColor(DesignSystem.Colors.warning)
+                                    .foregroundColor(DesignSystem.Colors.secondary)
                             }
                         }
                     }
@@ -118,11 +128,11 @@ struct PayrollPeriodCard: View {
                     Spacer()
                     
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text(totalPayroll.currencyString())
+                        Text(estimatedTotal.currencyString())
                             .font(DesignSystem.Typography.title2)
                             .foregroundColor(DesignSystem.Colors.primary)
                         
-                        Text("Total")
+                        Text("Est. Total")
                             .font(DesignSystem.Typography.caption)
                             .foregroundColor(DesignSystem.Colors.secondary)
                     }
@@ -152,7 +162,7 @@ struct PayrollPeriodCard: View {
     }
     
     // Optimized calculation
-    private func calculateTotalPayroll() -> Double {
+    private func calculatePayEstimate() -> Double {
         let dateRange = DateRange(start: period.startDate, end: period.endDate)
         var total = 0.0
         
@@ -198,8 +208,8 @@ struct PayrollPeriodCard: View {
     }
 }
 
-// MARK: - Create Payroll View
-struct CreatePayrollView: View {
+// MARK: - Create Pay Period View
+struct CreatePayPeriodView: View {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -211,12 +221,12 @@ struct CreatePayrollView: View {
     
     var body: some View {
         Form {
-            Section("Payroll Period") {
+            Section("Date Range") {
                 DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
                 DatePicker("End Date", selection: $endDate, displayedComponents: .date)
             }
             
-            Section("Settings") {
+            Section("Options") {
                 Toggle("Include Tips", isOn: $includeTips)
             }
             
@@ -226,7 +236,7 @@ struct CreatePayrollView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Create Payroll")
+        .navigationTitle("New Pay Period")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -239,7 +249,7 @@ struct CreatePayrollView: View {
             
             ToolbarItem(placement: .confirmationAction) {
                 Button("Create") {
-                    createPayroll()
+                    createPeriod()
                 }
                 .disabled(!isValid)
             }
@@ -250,8 +260,8 @@ struct CreatePayrollView: View {
         startDate <= endDate
     }
     
-    private func createPayroll() {
-        let period = PayrollPeriod(
+    private func createPeriod() {
+        let period = PayPeriod(
             startDate: startDate,
             endDate: endDate,
             includeTips: includeTips
@@ -266,24 +276,24 @@ struct CreatePayrollView: View {
             dismiss()
         } catch {
             DesignSystem.HapticFeedback.trigger(.error)
-            print("Failed to create payroll: \(error)")
+            print("Failed to create pay period: \(error)")
         }
     }
 }
 
-// MARK: - Payroll Detail View
-struct PayrollDetailView: View {
+// MARK: - Pay Period Detail View
+struct PayPeriodDetailView: View {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     
-    @Bindable var period: PayrollPeriod
+    @Bindable var period: PayPeriod
     
     @Query(filter: #Predicate<Employee> { $0.isActive }) private var employees: [Employee]
     @Query private var allTips: [DailyTips]
     
-    private var payrollData: [PayrollEmployeeData] {
-        calculatePayrollData()
+    private var estimateData: [PayEstimateData] {
+        calculatePayEstimateData()
     }
     
     var body: some View {
@@ -302,10 +312,10 @@ struct PayrollDetailView: View {
                     Spacer()
                     
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text("Total")
+                        Text("Est. Total")
                             .font(DesignSystem.Typography.caption)
                             .foregroundColor(DesignSystem.Colors.secondary)
-                        Text(payrollData.reduce(0) { $0 + $1.total }.currencyString())
+                        Text(estimateData.reduce(0) { $0 + $1.estimatedTotal }.currencyString())
                             .font(DesignSystem.Typography.title3)
                             .foregroundColor(DesignSystem.Colors.primary)
                     }
@@ -313,20 +323,26 @@ struct PayrollDetailView: View {
             }
             
             Section("Employee Breakdown") {
-                ForEach(payrollData, id: \.employee.id) { data in
-                    PayrollEmployeeRow(data: data)
+                ForEach(estimateData, id: \.employee.id) { data in
+                    PayEstimateRow(data: data)
                 }
             }
             
             Section {
-                Toggle("Mark as Paid", isOn: $period.isPaid)
-                    .onChange(of: period.isPaid) { _, _ in
+                Toggle("Mark as Reviewed", isOn: $period.isReviewed)
+                    .onChange(of: period.isReviewed) { _, _ in
                         saveChanges()
                     }
             }
+
+            Section {
+                Text("Estimates based on logged hours and rates. For internal reference only — not a payroll document.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundColor(DesignSystem.Colors.tertiary)
+            }
         }
         .formStyle(.grouped)
-        .navigationTitle("Payroll Details")
+        .navigationTitle("Pay Preview")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -340,9 +356,9 @@ struct PayrollDetailView: View {
     }
     
     // Optimized calculation method
-    private func calculatePayrollData() -> [PayrollEmployeeData] {
+    private func calculatePayEstimateData() -> [PayEstimateData] {
         let dateRange = DateRange(start: period.startDate, end: period.endDate)
-        var data: [PayrollEmployeeData] = []
+        var data: [PayEstimateData] = []
         
         // 1. Calculate Globals FIRST (Optimization)
         let tipsInRange = allTips.filter { dateRange.contains($0.date) }
@@ -370,24 +386,24 @@ struct PayrollDetailView: View {
             let hours = shifts.reduce(0) { $0 + $1.hoursWorked }
             
             if hours > 0 {
-                let wages = (employee.hourlyWage ?? 0) * hours
+                let estimatedPay = (employee.hourlyWage ?? 0) * hours
                 
                 // Calculate tip share based on pre-calculated totals
                 let tipHours = period.includeTips ? shifts.filter { $0.includeTips }.reduce(0) { $0 + $1.hoursWorked } : 0
                 let tipShare = totalTipHours > 0 ? (tipHours / totalTipHours) * totalTips : 0
                 
-                data.append(PayrollEmployeeData(
+                data.append(PayEstimateData(
                     employee: employee,
                     hours: hours,
                     rate: employee.hourlyWage ?? 0,
-                    wages: wages,
+                    estimatedPay: estimatedPay,
                     tips: tipShare,
-                    total: wages + tipShare
+                    estimatedTotal: estimatedPay + tipShare
                 ))
             }
         }
         
-        return data.sorted { $0.total > $1.total }
+        return data.sorted { $0.estimatedTotal > $1.estimatedTotal }
     }
     
     private func saveChanges() {
@@ -401,21 +417,21 @@ struct PayrollDetailView: View {
     }
 }
 
-// MARK: - Payroll Employee Data
+// MARK: - Pay Estimate Data
 // KEPT AT FILE LEVEL TO FIX SCOPE ERRORS
-struct PayrollEmployeeData {
+struct PayEstimateData {
     let employee: Employee
     let hours: Double
     let rate: Double
-    let wages: Double
+    let estimatedPay: Double
     let tips: Double
-    let total: Double
+    let estimatedTotal: Double
 }
 
-// MARK: - Payroll Employee Row
-struct PayrollEmployeeRow: View {
+// MARK: - Pay Estimate Row
+struct PayEstimateRow: View {
     
-    let data: PayrollEmployeeData
+    let data: PayEstimateData
     
     var body: some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_1) {
@@ -426,7 +442,7 @@ struct PayrollEmployeeRow: View {
                 
                 Spacer()
                 
-                Text(data.total.currencyString())
+                Text(data.estimatedTotal.currencyString())
                     .font(DesignSystem.Typography.headline)
                     .foregroundColor(DesignSystem.Colors.primary)
             }
@@ -451,10 +467,10 @@ struct PayrollEmployeeRow: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Wages")
+                    Text("Est. Pay")
                         .font(DesignSystem.Typography.caption)
                         .foregroundColor(DesignSystem.Colors.secondary)
-                    Text(data.wages.currencyString())
+                    Text(data.estimatedPay.currencyString())
                         .font(DesignSystem.Typography.caption)
                         .foregroundColor(DesignSystem.Colors.primary)
                 }

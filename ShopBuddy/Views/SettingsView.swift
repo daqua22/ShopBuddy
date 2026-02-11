@@ -125,6 +125,17 @@ struct SettingsView: View {
                 }
             }
 
+            // MARK: Drag & Drop
+            Section {
+                if let setting = settings.first {
+                    Toggle("Enable Drag & Drop", isOn: Bindable(setting).enableDragAndDrop)
+                }
+            } header: {
+                Text("Drag & Drop")
+            } footer: {
+                Text("Reorder checklist tasks and move inventory items between locations by dragging")
+            }
+
             // MARK: Operating Schedule
             Section("Operating Schedule") {
                 if let setting = settings.first {
@@ -173,21 +184,74 @@ struct SettingsView: View {
             // MARK: Developer
             Section("Developer") {
                 Button("Reset All Data", role: .destructive) {
-                    do {
-                        try modelContext.delete(model: Employee.self)
-                        try modelContext.delete(model: AppSettings.self)
-                    } catch {
-                        print("Failed to reset data: \(error)")
-                    }
+                    showingResetConfirmation = true
                 }
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+        .alert("Reset Data", isPresented: $showingResetConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Reset", role: .destructive) {
+                resetAllData()
+            }
+        } message: {
+            Text("This will permanently delete all data. This action cannot be undone.")
+        }
+        .alert("Reset Complete", isPresented: $showingResetSuccess) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("All data has been successfully deleted.")
+        }
+        .alert("Reset Failed", isPresented: $showingResetError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(resetErrorMessage)
+        }
         .onAppear {
             if settings.isEmpty {
                 modelContext.insert(AppSettings())
             }
+        }
+    }
+
+    @State private var showingResetConfirmation = false
+    @State private var showingResetSuccess = false
+    @State private var showingResetError = false
+    @State private var resetErrorMessage = ""
+
+    private func resetAllData() {
+        do {
+            // Inventory
+            try modelContext.fetch(FetchDescriptor<InventoryItem>()).forEach { modelContext.delete($0) }
+            try modelContext.fetch(FetchDescriptor<InventoryLocation>()).forEach { modelContext.delete($0) }
+            try modelContext.fetch(FetchDescriptor<InventoryCategory>()).forEach { modelContext.delete($0) }
+            
+            // Checklists
+            try modelContext.fetch(FetchDescriptor<ChecklistTask>()).forEach { modelContext.delete($0) }
+            try modelContext.fetch(FetchDescriptor<ChecklistTemplate>()).forEach { modelContext.delete($0) }
+            
+            // Daily & Tips
+            try modelContext.fetch(FetchDescriptor<DailyTask>()).forEach { modelContext.delete($0) }
+            try modelContext.fetch(FetchDescriptor<DailyTips>()).forEach { modelContext.delete($0) }
+            
+            // Payroll & Shifts
+            try modelContext.fetch(FetchDescriptor<PayPeriod>()).forEach { modelContext.delete($0) }
+            try modelContext.fetch(FetchDescriptor<Shift>()).forEach { modelContext.delete($0) }
+            try modelContext.fetch(FetchDescriptor<Employee>()).forEach { modelContext.delete($0) }
+            
+            // Settings
+            try modelContext.fetch(FetchDescriptor<AppSettings>()).forEach { modelContext.delete($0) }
+            
+            try modelContext.save()
+            showingResetSuccess = true
+            
+            // Re-initialize settings
+            modelContext.insert(AppSettings())
+        } catch {
+            print("Failed to reset data: \(error)")
+            resetErrorMessage = error.localizedDescription
+            showingResetError = true
         }
     }
 }

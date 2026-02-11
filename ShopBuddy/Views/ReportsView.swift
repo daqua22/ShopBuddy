@@ -72,8 +72,8 @@ struct ReportsView: View {
                 // Date range selector
                 dateRangeSelector
                 
-                // Labor cost report
-                laborCostCard(metrics: laborMetrics)
+                // Est. labor cost report
+                laborEstimateCard(metrics: laborMetrics)
                 
                 // Checklist completion
                 checklistCompletionCard
@@ -119,13 +119,13 @@ struct ReportsView: View {
                         ViewThatFits(in: .horizontal) {
                             HStack(alignment: .top, spacing: DesignSystem.Spacing.grid_2) {
                                 laborSnapshotValue(title: "Total Hours", value: laborMetrics.totalHours.hoursString(), color: DesignSystem.Colors.primary)
-                                laborSnapshotValue(title: "Total Cost", value: laborMetrics.totalCost.currencyString(), color: DesignSystem.Colors.warning)
-                                laborSnapshotValue(title: "Avg Rate", value: laborMetrics.avgRate.currencyString(), color: DesignSystem.Colors.accent)
+                                laborSnapshotValue(title: "Est. Cost", value: laborMetrics.estimatedCost.currencyString(), color: DesignSystem.Colors.warning)
+                                laborSnapshotValue(title: "Avg Rate (est.)", value: laborMetrics.avgRate.currencyString(), color: DesignSystem.Colors.accent)
                             }
                             VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_1) {
                                 laborSnapshotValue(title: "Total Hours", value: laborMetrics.totalHours.hoursString(), color: DesignSystem.Colors.primary)
-                                laborSnapshotValue(title: "Total Cost", value: laborMetrics.totalCost.currencyString(), color: DesignSystem.Colors.warning)
-                                laborSnapshotValue(title: "Avg Rate", value: laborMetrics.avgRate.currencyString(), color: DesignSystem.Colors.accent)
+                                laborSnapshotValue(title: "Est. Cost", value: laborMetrics.estimatedCost.currencyString(), color: DesignSystem.Colors.warning)
+                                laborSnapshotValue(title: "Avg Rate (est.)", value: laborMetrics.avgRate.currencyString(), color: DesignSystem.Colors.accent)
                             }
                         }
                     }
@@ -424,9 +424,9 @@ struct ReportsView: View {
         .glassCard()
     }
     
-    private func laborCostCard(metrics: LaborMetrics) -> some View {
+    private func laborEstimateCard(metrics: LaborMetrics) -> some View {
         return VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_2) {
-            Text("Labor Cost")
+            Text("Est. Labor Cost")
                 .font(DesignSystem.Typography.title3)
                 .foregroundColor(DesignSystem.Colors.primary)
             
@@ -441,15 +441,15 @@ struct ReportsView: View {
                     Divider()
                     
                     laborMetricColumn(
-                        title: "Total Cost",
-                        value: metrics.totalCost.currencyString(),
+                        title: "Est. Cost",
+                        value: metrics.estimatedCost.currencyString(),
                         valueColor: DesignSystem.Colors.warning
                     )
                     
                     Divider()
                     
                     laborMetricColumn(
-                        title: "Avg. Rate",
+                        title: "Avg. Rate (est.)",
                         value: metrics.avgRate.currencyString(),
                         valueColor: DesignSystem.Colors.accent
                     )
@@ -463,12 +463,12 @@ struct ReportsView: View {
                         valueColor: DesignSystem.Colors.primary
                     )
                     laborMetricColumn(
-                        title: "Total Cost",
-                        value: metrics.totalCost.currencyString(),
+                        title: "Est. Cost",
+                        value: metrics.estimatedCost.currencyString(),
                         valueColor: DesignSystem.Colors.warning
                     )
                     laborMetricColumn(
-                        title: "Avg. Rate",
+                        title: "Avg. Rate (est.)",
                         value: metrics.avgRate.currencyString(),
                         valueColor: DesignSystem.Colors.accent
                     )
@@ -644,7 +644,7 @@ struct ReportsView: View {
     
     private struct LaborMetrics {
         let totalHours: Double
-        let totalCost: Double
+        let estimatedCost: Double
         let avgRate: Double
         let perEmployee: [(employee: Employee, hours: Double, cost: Double?)]
     }
@@ -693,6 +693,6 @@ struct ReportsView: View {
         
         let avgRate = totalHours > 0 ? totalCost / totalHours : 0
         let sortedEmployeeData = perEmployee.sorted { $0.hours > $1.hours }
-        return LaborMetrics(totalHours: totalHours, totalCost: totalCost, avgRate: avgRate, perEmployee: sortedEmployeeData)
+        return LaborMetrics(totalHours: totalHours, estimatedCost: totalCost, avgRate: avgRate, perEmployee: sortedEmployeeData)
     }
 }

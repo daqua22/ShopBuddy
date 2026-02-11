@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 import SwiftData
 
 struct ChecklistsView: View {
@@ -96,6 +97,7 @@ struct ChecklistsView: View {
                     checklist: checklist,
                     canEdit: canEdit,
                     canMarkComplete: canMarkComplete,
+                    dragEnabled: settings.first?.enableDragAndDrop ?? true,
                     onEdit: {
                         editingChecklist = checklist
                     },
@@ -139,12 +141,15 @@ struct ChecklistsView: View {
 // MARK: - Checklist Card
 struct ChecklistCard: View {
     
+    @Environment(\.modelContext) private var modelContext
     @Bindable var checklist: ChecklistTemplate
     let canEdit: Bool
     let canMarkComplete: Bool
+    let dragEnabled: Bool
     let onEdit: () -> Void
     let onTaskTap: (ChecklistTask) -> Void
     let onReset: () -> Void
+    @State private var draggedTaskID: UUID?
     
     var body: some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.grid_2) {
@@ -207,17 +212,92 @@ struct ChecklistCard: View {
                     ChecklistTaskRow(
                         task: task,
                         canMarkComplete: canMarkComplete,
+                        showDragHandle: dragEnabled && canEdit,
+                        draggedTaskID: $draggedTaskID,
                         onTap: {
                             if task.isCompleted || canMarkComplete {
                                 onTaskTap(task)
                             }
                         }
                     )
+                    .onDrop(of: [.text], delegate: ChecklistTaskDropDelegate(
+                        targetTask: task,
+                        checklist: checklist,
+                        draggedTaskID: $draggedTaskID,
+                        modelContext: modelContext,
+                        isEnabled: dragEnabled && canEdit
+                    ))
+                    .opacity(draggedTaskID == task.id ? 0.4 : 1.0)
                 }
             }
         }
         .padding(DesignSystem.Spacing.grid_2)
         .glassCard()
+    }
+
+    private func reorderTask(draggedID: UUID, targetTask: ChecklistTask) {
+        let sortedTasks = checklist.tasks.sorted(by: { $0.sortOrder < $1.sortOrder })
+        guard let draggedTask = sortedTasks.first(where: { $0.id == draggedID }),
+              draggedTask.id != targetTask.id else { return }
+
+        var reordered = sortedTasks.filter { $0.id != draggedID }
+        if let targetIndex = reordered.firstIndex(where: { $0.id == targetTask.id }) {
+            reordered.insert(draggedTask, at: targetIndex)
+        }
+
+        for (index, task) in reordered.enumerated() {
+            task.sortOrder = index
+        }
+
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to reorder tasks: \(error)")
+        }
+    }
+}
+
+// MARK: - Checklist Task Drop Delegate
+struct ChecklistTaskDropDelegate: DropDelegate {
+    let targetTask: ChecklistTask
+    let checklist: ChecklistTemplate
+    @Binding var draggedTaskID: UUID?
+    let modelContext: ModelContext
+    let isEnabled: Bool
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedTaskID = nil
+        return isEnabled
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard isEnabled,
+              let draggedID = draggedTaskID,
+              draggedID != targetTask.id else { return }
+
+        let sortedTasks = checklist.tasks.sorted(by: { $0.sortOrder < $1.sortOrder })
+        guard let fromIndex = sortedTasks.firstIndex(where: { $0.id == draggedID }),
+              let toIndex = sortedTasks.firstIndex(where: { $0.id == targetTask.id }) else { return }
+
+        guard fromIndex != toIndex else { return }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            var reordered = sortedTasks
+            let moved = reordered.remove(at: fromIndex)
+            reordered.insert(moved, at: toIndex)
+
+            for (index, task) in reordered.enumerated() {
+                task.sortOrder = index
+            }
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        // No-op
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: isEnabled ? .move : .cancel)
     }
 }
 
@@ -226,14 +306,27 @@ struct ChecklistTaskRow: View {
     
     @Bindable var task: ChecklistTask
     let canMarkComplete: Bool
+    var showDragHandle: Bool = false
+    @Binding var draggedTaskID: UUID?
     let onTap: () -> Void
     
     var body: some View {
-        Button {
-            onTap()
-        } label: {
+        HStack(spacing: DesignSystem.Spacing.grid_2) {
+            if showDragHandle {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.tertiary)
+                    .frame(width: 20, height: 30)
+                    .contentShape(Rectangle())
+                    .onDrag {
+                        draggedTaskID = task.id
+                        return NSItemProvider(object: task.id.uuidString as NSString)
+                    }
+                    .help("Drag to reorder")
+            }
+
+            // Checkbox + text (tappable)
             HStack(spacing: DesignSystem.Spacing.grid_2) {
-                // Checkbox
                 Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
                     .font(.title2)
                     .foregroundColor(task.isCompleted ? DesignSystem.Colors.success : DesignSystem.Colors.secondary)
@@ -253,9 +346,14 @@ struct ChecklistTaskRow: View {
                 
                 Spacer()
             }
-            .padding(.vertical, DesignSystem.Spacing.grid_1)
+            .contentShape(Rectangle())
+            .opacity(!task.isCompleted && !canMarkComplete ? 0.5 : 1.0)
+            .onTapGesture {
+                guard task.isCompleted || canMarkComplete else { return }
+                onTap()
+            }
         }
-        .disabled(!task.isCompleted && !canMarkComplete)
+        .padding(.vertical, DesignSystem.Spacing.grid_1)
     }
 }
 
@@ -376,6 +474,9 @@ struct AddEditChecklistView: View {
                             }
                         }
                     }
+                }
+                .onMove { source, destination in
+                    tasks.move(fromOffsets: source, toOffset: destination)
                 }
                 
                 Button {

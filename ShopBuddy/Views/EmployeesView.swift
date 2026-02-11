@@ -488,7 +488,7 @@ struct AddEditEmployeeView: View {
                     }
                 }
                 
-                Section("Compensation") {
+                Section("Pay Rate (Reference)") {
                     #if os(iOS)
                     TextField("Hourly Wage (optional)", text: $hourlyWage)
                         .keyboardType(.decimalPad)

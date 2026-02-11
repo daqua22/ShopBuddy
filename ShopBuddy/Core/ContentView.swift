@@ -260,7 +260,7 @@ struct ContentView: View {
         case .tips: TipsView()
         case .employees: EmployeesView()
         case .reports: ReportsView()
-        case .payroll: PayrollView()
+        case .paySummary: PaySummaryView()
         case .settings: SettingsView()
         }
     }
@@ -275,7 +275,7 @@ struct ContentView: View {
     }
 
     private var sidebarManagementTabs: [TabItem] {
-        let preferredOrder: [TabItem] = [.employees, .reports, .payroll, .settings]
+        let preferredOrder: [TabItem] = [.employees, .reports, .paySummary, .settings]
         return preferredOrder.filter(visibleTabs.contains)
     }
 

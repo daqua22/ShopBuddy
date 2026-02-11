@@ -87,8 +87,8 @@ struct TipsView: View {
     private var tipsSummaryCard: some View {
         let tipsInRange = allTips.filter { selectedDateRange.contains($0.date) }
         let totalTips = tipsInRange.reduce(0) { $0 + $1.totalAmount }
-        let paidTips = tipsInRange.filter { $0.isPaid }.reduce(0) { $0 + $1.totalAmount }
-        let unpaidTips = totalTips - paidTips
+        let distributedTips = tipsInRange.filter { $0.isDistributed }.reduce(0) { $0 + $1.totalAmount }
+        let pendingTips = totalTips - distributedTips
         
         return VStack(spacing: DesignSystem.Spacing.grid_2) {
             HStack {
@@ -111,10 +111,10 @@ struct TipsView: View {
                 Divider()
                 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Paid")
+                    Text("Distributed")
                         .font(DesignSystem.Typography.caption)
                         .foregroundColor(DesignSystem.Colors.secondary)
-                    Text(paidTips.currencyString())
+                    Text(distributedTips.currencyString())
                         .font(DesignSystem.Typography.title2)
                         .foregroundColor(DesignSystem.Colors.success)
                 }
@@ -122,10 +122,10 @@ struct TipsView: View {
                 Divider()
                 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Unpaid")
+                    Text("Pending")
                         .font(DesignSystem.Typography.caption)
                         .foregroundColor(DesignSystem.Colors.secondary)
-                    Text(unpaidTips.currencyString())
+                    Text(pendingTips.currencyString())
                         .font(DesignSystem.Typography.title2)
                         .foregroundColor(DesignSystem.Colors.warning)
                 }
@@ -321,8 +321,8 @@ struct DailyTipsRow: View {
                     .font(DesignSystem.Typography.body)
                     .foregroundColor(DesignSystem.Colors.primary)
                 
-                if tips.isPaid, let paidDate = tips.paidDate {
-                    Text("Paid on \(paidDate.dateString())")
+                if tips.isDistributed, let distDate = tips.distributedDate {
+                    Text("Distributed \(distDate.dateString())")
                         .font(DesignSystem.Typography.caption)
                         .foregroundColor(DesignSystem.Colors.success)
                 }
@@ -334,11 +334,11 @@ struct DailyTipsRow: View {
                 .font(DesignSystem.Typography.headline)
                 .foregroundColor(DesignSystem.Colors.primary)
             
-            if !tips.isPaid {
+            if !tips.isDistributed {
                 Button {
-                    markAsPaid()
+                    markDistributed()
                 } label: {
-                    Text("Mark Paid")
+                    Text("Mark Distributed")
                         .font(DesignSystem.Typography.caption)
                         .foregroundColor(.white)
                         .padding(.horizontal, DesignSystem.Spacing.grid_1)
@@ -347,22 +347,22 @@ struct DailyTipsRow: View {
                         .cornerRadius(DesignSystem.CornerRadius.small)
                 }
             } else {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(DesignSystem.Colors.success)
+                Image(systemName: "arrow.right.circle")
+                    .foregroundColor(DesignSystem.Colors.accent)
             }
         }
         .padding(DesignSystem.Spacing.grid_2)
         .glassCard()
     }
     
-    private func markAsPaid() {
-        tips.markAsPaid()
+    private func markDistributed() {
+        tips.markDistributed()
         DesignSystem.HapticFeedback.trigger(.success)
         
         do {
             try modelContext.save()
         } catch {
-            print("Failed to mark tips as paid: \(error)")
+            print("Failed to mark tips as distributed: \(error)")
             DesignSystem.HapticFeedback.trigger(.error)
         }
     }

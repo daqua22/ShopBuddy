@@ -118,8 +118,9 @@ final class InventoryItem {
     var notes: String?
     var lastRestocked: Date?
     var location: InventoryLocation?
+    var sortOrder: Int
     
-    init(name: String, stockLevel: Double, parLevel: Double, unitType: String, amountOnHand: Double = 0, vendor: String? = nil, notes: String? = nil) {
+    init(name: String, stockLevel: Double, parLevel: Double, unitType: String, amountOnHand: Double = 0, vendor: String? = nil, notes: String? = nil, sortOrder: Int = 0) {
         self.id = UUID()
         self.name = name
         self.stockLevel = stockLevel
@@ -129,6 +130,7 @@ final class InventoryItem {
         self.vendor = vendor
         self.notes = notes
         self.lastRestocked = Date()
+        self.sortOrder = sortOrder
     }
     
     var stockPercentage: Double {
@@ -205,20 +207,22 @@ final class DailyTips {
     var id: UUID
     var date: Date
     var totalAmount: Double
-    var isPaid: Bool
-    var paidDate: Date?
+    @Attribute(originalName: "isPaid")
+    var isDistributed: Bool
+    @Attribute(originalName: "paidDate")
+    var distributedDate: Date?
     var notes: String?
     
     init(date: Date, totalAmount: Double) {
         self.id = UUID()
         self.date = Calendar.current.startOfDay(for: date)
         self.totalAmount = totalAmount
-        self.isPaid = false
+        self.isDistributed = false
     }
     
-    func markAsPaid() {
-        isPaid = true
-        paidDate = Date()
+    func markDistributed() {
+        isDistributed = true
+        distributedDate = Date()
     }
 }
 
@@ -228,6 +232,7 @@ final class AppSettings {
     var id: UUID
     var allowEmployeeInventoryEdit: Bool
     var requireClockInForChecklists: Bool = false
+    var enableDragAndDrop: Bool = true
     var operatingDaysRaw: String = "[2,3,4,5,6]"
     var openTime: Date = {
         Calendar.current.date(from: DateComponents(hour: 9, minute: 0)) ?? Date()
@@ -240,6 +245,7 @@ final class AppSettings {
         self.id = UUID()
         self.allowEmployeeInventoryEdit = false
         self.requireClockInForChecklists = false
+        self.enableDragAndDrop = true
         // Default Mon–Fri
         self.operatingDaysRaw = "[2,3,4,5,6]"
         // Default 9:00 AM
@@ -367,22 +373,24 @@ final class ChecklistTask {
     }
 }
 
-// MARK: - Payroll Period
+// MARK: - Pay Period (Preview)
 @Model
-final class PayrollPeriod {
+final class PayPeriod {
     var id: UUID
     var startDate: Date
     var endDate: Date
-    var isPaid: Bool
+    @Attribute(originalName: "isPaid")
+    var isReviewed: Bool
     var includeTips: Bool
     var notes: String?
-    var paidDate: Date?
+    @Attribute(originalName: "paidDate")
+    var reviewedDate: Date?
 
     init(startDate: Date = Date(), endDate: Date = Date().addingTimeInterval(1209600), includeTips: Bool = true) {
         self.id = UUID()
         self.startDate = startDate
         self.endDate = endDate
-        self.isPaid = false
+        self.isReviewed = false
         self.includeTips = includeTips
     }
 }

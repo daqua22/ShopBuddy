@@ -21,23 +21,14 @@ struct ShopBuddyApp: App {
     let modelContainer: ModelContainer
 
     init() {
-        let schema = Schema([
-            Employee.self,
-            Shift.self,
-            InventoryCategory.self,
-            InventoryLocation.self,
-            InventoryItem.self,
-            ChecklistTemplate.self,
-            ChecklistTask.self,
-            DailyTips.self,
-            DailyTask.self,
-            PayrollPeriod.self,
-            AppSettings.self
-        ])
-        let config = ModelConfiguration(isStoredInMemoryOnly: false)
         do {
-            let container = try ModelContainer(for: schema, configurations: config)
-
+            let schema = Schema(versionedSchema: SchemaV2.self)
+            let config = ModelConfiguration(isStoredInMemoryOnly: false)
+            let container = try ModelContainer(
+                for: schema,
+                migrationPlan: ShopBuddyMigrationPlan.self,
+                configurations: config
+            )
             self.modelContainer = container
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")

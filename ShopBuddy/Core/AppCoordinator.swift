@@ -49,7 +49,7 @@ enum TabItem: String, CaseIterable {
     case tips = "Tips"
     case employees = "Employees"
     case reports = "Reports"
-    case payroll = "Payroll"
+    case paySummary = "Pay Summary"
     case settings = "Settings"
     
     var icon: String {
@@ -62,7 +62,7 @@ enum TabItem: String, CaseIterable {
         case .tips: return "dollarsign.circle.fill"
         case .employees: return "person.3.fill"
         case .reports: return "chart.bar.fill"
-        case .payroll: return "banknote.fill"
+        case .paySummary: return "banknote.fill"
         case .settings: return "gearshape.fill"
         }
     }
@@ -74,7 +74,7 @@ enum TabItem: String, CaseIterable {
         case .employeeView:
             return [.dashboard, .inventory, .checklists, .dailyTasks, .clockInOut, .tips]
         case .managerView:
-            return [.dashboard, .inventory, .checklists, .dailyTasks, .clockInOut, .tips, .employees, .reports, .payroll, .settings]
+            return [.dashboard, .inventory, .checklists, .dailyTasks, .clockInOut, .tips, .employees, .reports, .paySummary, .settings]
         }
     }
 }

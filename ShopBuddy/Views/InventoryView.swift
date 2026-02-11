@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import SwiftData
 import SwiftData
 import Combine
@@ -182,6 +183,7 @@ struct InventoryView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \InventoryCategory.name) private var categories: [InventoryCategory]
     @Query(sort: \InventoryItem.name) private var allInventoryItems: [InventoryItem]
+    @Query private var settings: [AppSettings]
     @AppStorage(InventoryHiddenItemStore.storageKey) private var hiddenItemIDsRaw = ""
     
     @State private var showingAddCategory = false
@@ -200,6 +202,10 @@ struct InventoryView: View {
     @FocusState private var isSearchFieldFocused: Bool
     @State private var isViewActive = false
     @State private var forceRefreshID = UUID()
+
+    private var dragEnabled: Bool {
+        settings.first?.enableDragAndDrop ?? true
+    }
 
     private var totalCategoryItemCount: Int {
         categories.reduce(into: 0) { partialResult, category in
@@ -679,6 +685,19 @@ struct InventoryView: View {
                             }
                             .buttonStyle(.plain)
                             .padding(.horizontal, 8)
+                            .if(dragEnabled && coordinator.isManager) { view in
+                                view.onDrop(of: [.text], isTargeted: nil) { providers in
+                                    guard let provider = providers.first else { return false }
+                                    _ = provider.loadObject(ofClass: NSString.self) { nsString, _ in
+                                        guard let string = nsString as? String,
+                                              let itemID = UUID(uuidString: string) else { return }
+                                        DispatchQueue.main.async {
+                                            _ = moveItemToLocation(itemID: itemID, targetLocation: location)
+                                        }
+                                    }
+                                    return true
+                                }
+                            }
                             .contextMenu {
                                 Button("Delete Location", role: .destructive) {
                                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -696,6 +715,23 @@ struct InventoryView: View {
                 }
             }
         }
+    }
+
+    private func moveItemToLocation(itemID: UUID, targetLocation: InventoryLocation) -> Bool {
+        guard let item = allInventoryItems.first(where: { $0.id == itemID }),
+              item.location?.id != targetLocation.id else { return false }
+
+        item.location = targetLocation
+
+        do {
+            try modelContext.save()
+            DesignSystem.HapticFeedback.trigger(.success)
+            forceRefreshID = UUID()
+        } catch {
+            print("Failed to move item: \(error)")
+            DesignSystem.HapticFeedback.trigger(.error)
+        }
+        return true
     }
     #endif
 
@@ -952,6 +988,11 @@ private struct MacCategoryItemDetailView: View {
 
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.modelContext) private var modelContext
+    @Query private var settings: [AppSettings]
+
+    private var dragEnabled: Bool {
+        settings.first?.enableDragAndDrop ?? true
+    }
 
     @State private var editingItem: InventoryItem?
     @State private var showingAddLocation = false
@@ -1262,6 +1303,18 @@ private struct MacCategoryItemDetailView: View {
         let isLowStock = record.item.stockLevel <= record.item.parLevel
 
         return HStack(spacing: 12) {
+            if dragEnabled && coordinator.isManager {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.tertiary)
+                    .frame(width: 20, height: 30)
+                    .contentShape(Rectangle())
+                    .onDrag {
+                        NSItemProvider(object: record.item.id.uuidString as NSString)
+                    }
+                    .help("Drag to move to another location")
+            }
+
             VStack(alignment: .leading, spacing: 3) {
                 Text(record.item.name)
                     .font(DesignSystem.Typography.headline)
@@ -1815,6 +1868,8 @@ struct ItemListView: View {
     var location: InventoryLocation
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.modelContext) private var modelContext
+    @Query private var settings: [AppSettings]
+    @Query(sort: \InventoryItem.name) private var allInventoryItems: [InventoryItem]
     @State private var showingAddItem = false
     @State private var editingItem: InventoryItem?
     @State private var editingAmountOnHandItem: InventoryItem?
@@ -1825,6 +1880,10 @@ struct ItemListView: View {
     @SceneStorage("inventory.selectedItemID") private var selectedItemID: String?
     @FocusState private var isSearchFieldFocused: Bool
     @State private var isViewActive = false
+
+    private var dragEnabled: Bool {
+        settings.first?.enableDragAndDrop ?? true
+    }
 
     init(location: InventoryLocation, initialSearchText: String = "", showAllForSearch: Bool = false) {
         self.location = location
@@ -2028,7 +2087,8 @@ struct ItemListView: View {
                     item: item,
                     isHidden: isItemHidden(item),
                     canEditStockLevels: canEditStockLevels,
-                    canOpenSettings: coordinator.isManager
+                    canOpenSettings: coordinator.isManager,
+                    showDragHandle: dragEnabled && coordinator.isManager
                 ) {
                     if coordinator.isManager {
                         editingItem = item
@@ -2060,6 +2120,7 @@ struct ItemListView: View {
                         .tint(isItemHidden(item) ? .green : .orange)
                     }
                 }
+                // .onDrag moved inside InventoryItemRow drag handle
                 #if os(macOS)
                 .tag(item.id.uuidString)
                 #endif
@@ -2291,6 +2352,7 @@ struct InventoryItemRow: View {
     let isHidden: Bool
     let canEditStockLevels: Bool
     let canOpenSettings: Bool
+    let showDragHandle: Bool
     let onTapName: () -> Void
     let onEditAmountOnHand: () -> Void
     let onToggleHidden: () -> Void
@@ -2299,7 +2361,17 @@ struct InventoryItemRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Tappable name section with settings indicator
+            if showDragHandle {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.tertiary)
+                    .frame(width: 20, height: 30)
+                    .contentShape(Rectangle())
+                    .onDrag {
+                        NSItemProvider(object: item.id.uuidString as NSString)
+                    }
+                    .help("Drag to move to another location")
+            }
             Button {
                 if canOpenSettings {
                     onTapName()
