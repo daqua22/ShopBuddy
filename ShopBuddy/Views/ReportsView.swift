@@ -198,7 +198,7 @@ struct ReportsView: View {
                                             }
                                         }
                                         Spacer()
-                                        Text("\(item.stockLevel, specifier: "%.1f") / \(item.parLevel, specifier: "%.1f") \(item.unitType)")
+                                        Text("\(item.stockLevel.formatted(.number.precision(.fractionLength(1)))) / \(item.parLevel.formatted(.number.precision(.fractionLength(1)))) \(item.unitType)")
                                             .font(DesignSystem.Typography.caption)
                                             .foregroundColor(DesignSystem.Colors.secondary)
                                     }
@@ -569,7 +569,7 @@ struct ReportsView: View {
                                     .font(DesignSystem.Typography.body)
                                     .foregroundColor(DesignSystem.Colors.primary)
                                 
-                                Text("\(item.stockLevel, specifier: "%.1f") / \(item.parLevel, specifier: "%.1f") \(item.unitType)")
+                                Text("\(item.stockLevel.formatted(.number.precision(.fractionLength(1)))) / \(item.parLevel.formatted(.number.precision(.fractionLength(1)))) \(item.unitType)")
                                     .font(DesignSystem.Typography.caption)
                                     .foregroundColor(DesignSystem.Colors.secondary)
                             }

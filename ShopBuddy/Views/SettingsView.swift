@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 // MARK: - App Theme
 
@@ -175,6 +176,33 @@ struct SettingsView: View {
                 LabeledContent("Role", value: "Manager")
             }
 
+            // MARK: Data Management
+            Section("Data Management") {
+                Button {
+                    exportBackup()
+                } label: {
+                    Label("Export Full Backup (JSON)", systemImage: "square.and.arrow.up")
+                }
+                
+                Button {
+                    showingBackupImporter = true
+                } label: {
+                    Label("Restore from Backup", systemImage: "square.and.arrow.down")
+                }
+                
+                Button {
+                    exportCSV()
+                } label: {
+                    Label("Export Inventory (CSV)", systemImage: "tablecells")
+                }
+                
+                Button {
+                    showingCSVImporter = true
+                } label: {
+                    Label("Import from Spreadsheet", systemImage: "square.and.arrow.down.on.square")
+                }
+            }
+
             // MARK: About
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
@@ -208,6 +236,48 @@ struct SettingsView: View {
         } message: {
             Text(resetErrorMessage)
         }
+        // File Exporters/Importers
+        .fileExporter(isPresented: $showingBackupExporter, document: backupDocument, contentType: .json, defaultFilename: "ShopBuddy_Backup_\(Date().formatted(.iso8601))") { result in
+            if case .failure(let error) = result {
+                print("Export failed: \(error.localizedDescription)")
+            }
+        }
+        .fileImporter(isPresented: $showingBackupImporter, allowedContentTypes: [.json]) { result in
+            switch result {
+            case .success(let url):
+                restoreBackup(from: url)
+            case .failure(let error):
+                importErrorMessage = error.localizedDescription
+                showingImportError = true
+            }
+        }
+        .fileExporter(isPresented: $showingCSVExporter, document: csvDocument, contentType: .commaSeparatedText, defaultFilename: "ShopBuddy_Inventory_\(Date().formatted(.iso8601))") { result in
+             if case .failure(let error) = result {
+                 print("Export failed: \(error.localizedDescription)")
+             }
+         }
+        .fileImporter(isPresented: $showingCSVImporter, allowedContentTypes: [.commaSeparatedText, .tabSeparatedText, .plainText]) { result in
+            switch result {
+            case .success(let url):
+                loadSpreadsheetFile(from: url)
+            case .failure(let error):
+                importErrorMessage = error.localizedDescription
+                showingImportError = true
+            }
+        }
+        .sheet(item: $spreadsheetFileData) { data in
+            SpreadsheetImportView(fileData: data.data)
+        }
+        .alert("Import/Restore Complete", isPresented: $showingImportSuccess) {
+             Button("OK", role: .cancel) { }
+         } message: {
+             Text("Operation completed successfully.")
+         }
+        .alert("Import Failed", isPresented: $showingImportError) {
+             Button("OK", role: .cancel) { }
+         } message: {
+             Text(importErrorMessage)
+         }
         .onAppear {
             if settings.isEmpty {
                 modelContext.insert(AppSettings())
@@ -254,4 +324,85 @@ struct SettingsView: View {
             showingResetError = true
         }
     }
+
+    // MARK: - Data Management State
+    @State private var showingBackupExporter = false
+    @State private var showingBackupImporter = false
+    @State private var backupDocument: BackupFile?
+    
+    @State private var showingCSVExporter = false
+    @State private var showingCSVImporter = false
+    @State private var csvDocument: CSVFile?
+    
+    @State private var showingImportSuccess = false
+    @State private var showingImportError = false
+    @State private var importErrorMessage = ""
+    
+    // MARK: - Handlers
+    
+    private func exportBackup() {
+        do {
+            let data = try BackupService(modelContext: modelContext).exportData()
+            backupDocument = BackupFile(initialData: data)
+            showingBackupExporter = true
+        } catch {
+            importErrorMessage = "Export failed: \(error.localizedDescription)"
+            showingImportError = true
+        }
+    }
+    
+    private func restoreBackup(from url: URL) {
+        guard url.startAccessingSecurityScopedResource() else {
+            importErrorMessage = "Permission denied to access file."
+            showingImportError = true
+            return
+        }
+        defer { url.stopAccessingSecurityScopedResource() }
+        
+        do {
+            let data = try Data(contentsOf: url)
+            try BackupService(modelContext: modelContext).restoreData(from: data)
+            showingImportSuccess = true
+            // Re-init happens inside restoreData via clearAllData() + inserts
+        } catch {
+            importErrorMessage = "Restore failed: \(error.localizedDescription)"
+            showingImportError = true
+        }
+    }
+    
+    private func exportCSV() {
+        do {
+            let data = try CSVService(modelContext: modelContext).exportInventory()
+            csvDocument = CSVFile(initialData: data)
+            showingCSVExporter = true
+        } catch {
+            importErrorMessage = "Export failed: \(error.localizedDescription)"
+            showingImportError = true
+        }
+    }
+    
+    private func loadSpreadsheetFile(from url: URL) {
+        guard url.startAccessingSecurityScopedResource() else {
+             importErrorMessage = "Permission denied to access file."
+             showingImportError = true
+             return
+         }
+         defer { url.stopAccessingSecurityScopedResource() }
+         
+         do {
+             let data = try Data(contentsOf: url)
+             spreadsheetFileData = SpreadsheetFileData(data: data)
+         } catch {
+             importErrorMessage = "Could not read file: \(error.localizedDescription)"
+             showingImportError = true
+         }
+    }
+    
+    @State private var spreadsheetFileData: SpreadsheetFileData?
+}
+
+/// Wrapper to make raw Data identifiable for .sheet(item:)
+struct SpreadsheetFileData: Identifiable {
+    let id = UUID()
+    let data: Data
 }

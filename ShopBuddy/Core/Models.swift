@@ -73,7 +73,7 @@ final class InventoryCategory {
     var id: UUID
     var name: String // e.g., "Weekly", "Monthly"
     var emoji: String // e.g., "📦", "📅"
-    @Relationship(deleteRule: .cascade) var locations: [InventoryLocation] = []
+    @Relationship(deleteRule: .cascade, inverse: \InventoryLocation.category) var locations: [InventoryLocation] = []
     
     init(name: String, emoji: String = "📦") {
         self.id = UUID()
@@ -110,24 +110,49 @@ final class InventoryLocation {
 final class InventoryItem {
     var id: UUID
     var name: String
-    var stockLevel: Double
-    var parLevel: Double
-    var amountOnHand: Double // NEW: Actual amount physically present
-    var unitType: String
-    var vendor: String? // NEW: Supplier/vendor name
+    var stockLevel: Decimal // Stored in baseUnit
+    var parLevel: Decimal // Stored in baseUnit
+    var amountOnHand: Decimal // Stored in baseUnit
+    var unitType: String // This is now the "Display Unit" (e.g. "Bottles")
+    var baseUnit: String // The unit used for logic/deduction (e.g. "mL" or "g")
+    
+    // Packaging Metadata
+    var packSize: Decimal? // e.g. 483 (grams per bottle)
+    var packUnit: String? // e.g. "g" (must match baseUnit family)
+    var packDisplayName: String? // e.g. "Bottle"
+    
+    var vendor: String?
+    var pricePerUnit: Decimal? // Price per DISPLAY unit
     var notes: String?
     var lastRestocked: Date?
     var location: InventoryLocation?
     var sortOrder: Int
     
-    init(name: String, stockLevel: Double, parLevel: Double, unitType: String, amountOnHand: Double = 0, vendor: String? = nil, notes: String? = nil, sortOrder: Int = 0) {
+    init(name: String, 
+         stockLevel: Decimal, 
+         parLevel: Decimal, 
+         unitType: String,
+         baseUnit: String, // Required now
+         packSize: Decimal? = nil,
+         packUnit: String? = nil,
+         packDisplayName: String? = nil,
+         amountOnHand: Decimal = 0, 
+         vendor: String? = nil, 
+         pricePerUnit: Decimal? = nil, 
+         notes: String? = nil, 
+         sortOrder: Int = 0) {
         self.id = UUID()
         self.name = name
         self.stockLevel = stockLevel
         self.parLevel = parLevel
         self.amountOnHand = amountOnHand
         self.unitType = unitType
+        self.baseUnit = baseUnit
+        self.packSize = packSize
+        self.packUnit = packUnit
+        self.packDisplayName = packDisplayName
         self.vendor = vendor
+        self.pricePerUnit = pricePerUnit
         self.notes = notes
         self.lastRestocked = Date()
         self.sortOrder = sortOrder
@@ -135,31 +160,120 @@ final class InventoryItem {
     
     var stockPercentage: Double {
         guard parLevel > 0 else { return 0 }
-        return min(stockLevel / parLevel, 1.0)
+        return NSDecimalNumber(decimal: min(stockLevel / parLevel, 1.0)).doubleValue
     }
     
     var isBelowPar: Bool {
         stockLevel < parLevel
     }
+    
+    var totalValue: Decimal {
+        (pricePerUnit ?? 0) * stockLevel // Simplification: assuming price is per stored unit for now, or need conversion if price is per pack
+    }
 }
 
 // MARK: - Unit Types
-enum UnitType: String, CaseIterable {
+enum UnitType: String, CaseIterable, Codable {
+    // Mass
+    case kilograms = "kg"
+    case grams = "g"
+    case pounds = "lbs"
+    case ounces = "oz"
+    
+    // Volume
+    case liters = "L"
+    case milliliters = "mL"
+    case gallons = "gal"
+    case fluidOunces = "fl oz"
+    case cups = "cups"
+    
+    // Count/Packaging
+    case pieces = "Pieces"
+    case units = "Units"
     case bottles = "Bottles"
     case cans = "Cans"
     case boxes = "Boxes"
     case bags = "Bags"
-    case kilograms = "kg"
-    case grams = "g"
-    case liters = "L"
-    case milliliters = "mL"
-    case pounds = "lbs"
-    case ounces = "oz"
-    case pieces = "Pieces"
-    case units = "Units"
     case packs = "Packs"
     case cases = "Cases"
+    
     case other = "Other"
+    
+    enum Family {
+        case mass
+        case volume
+        case count
+        case unknown
+    }
+    
+    var family: Family {
+        switch self {
+        case .kilograms, .grams, .pounds, .ounces:
+            return .mass
+        case .liters, .milliliters, .gallons, .fluidOunces, .cups:
+            return .volume
+        case .pieces, .units, .bottles, .cans, .boxes, .bags, .packs, .cases:
+            return .count
+        case .other:
+            return .unknown
+        }
+    }
+    
+    /// Normalizes the amount to the base unit of the family (kg, L, or self).
+    /// Returns (normalizedAmount, baseUnit).
+    func normalize(_ amount: Decimal) -> Decimal {
+        switch self {
+        // Mass -> kg
+        case .kilograms: return amount
+        case .grams:     return amount / 1000.0
+        case .pounds:    return amount * 0.453592
+        case .ounces:    return amount * 0.0283495
+            
+        // Volume -> L
+        case .liters:      return amount
+        case .milliliters: return amount / 1000.0
+        case .gallons:     return amount * 3.78541
+        case .fluidOunces: return amount * 0.0295735
+        case .cups:        return amount * 0.236588
+            
+        // Count -> Identity
+        default: return amount
+        }
+    }
+    
+    /// Converts a normalized amount (in base unit) to this unit.
+    func fromBase(_ baseAmount: Decimal) -> Decimal {
+        switch self {
+        // Mass (Base: kg)
+        case .kilograms: return baseAmount
+        case .grams:     return baseAmount * 1000.0
+        case .pounds:    return baseAmount * 2.20462
+        case .ounces:    return baseAmount * 35.274
+            
+        // Volume (Base: L)
+        case .liters:      return baseAmount
+        case .milliliters: return baseAmount * 1000.0
+        case .gallons:     return baseAmount * 0.264172
+        case .fluidOunces: return baseAmount * 33.814
+        case .cups:        return baseAmount * 4.22675
+            
+        // Count
+        default: return baseAmount
+        }
+    }
+    
+    /// Attempts to convert an amount from this unit to a target unit.
+    /// Returns nil if families are incompatible.
+    func convert(_ amount: Decimal, to target: UnitType) -> Decimal? {
+        if self == target { return amount }
+        guard self.family == target.family, self.family != .unknown else { return nil }
+        
+        // 1. Normalize to base
+        let baseAmount = self.normalize(amount)
+        
+        // 2. Convert to target
+        return target.fromBase(baseAmount)
+    }
 }
 
 // MARK: - Shift

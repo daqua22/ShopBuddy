@@ -26,7 +26,6 @@ struct ShopBuddyApp: App {
             let config = ModelConfiguration(isStoredInMemoryOnly: false)
             let container = try ModelContainer(
                 for: schema,
-                migrationPlan: ShopBuddyMigrationPlan.self,
                 configurations: config
             )
             self.modelContainer = container

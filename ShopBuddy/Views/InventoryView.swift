@@ -1323,7 +1323,7 @@ private struct MacCategoryItemDetailView: View {
                 HStack(spacing: 6) {
                     Text(record.item.unitType)
                     Text("•")
-                    Text("Min \(formattedQuantity(record.item.parLevel))")
+                    Text("Min \(formattedQuantity(record.item.parLevel)) \(record.item.unitType)")
                     Text("•")
                     Text(record.location.name)
                 }
@@ -1355,7 +1355,7 @@ private struct MacCategoryItemDetailView: View {
                     Capsule()
                         .fill(DesignSystem.Colors.surface.opacity(0.9))
                 )
-                .contentTransition(.numericText(value: record.item.stockLevel))
+                .contentTransition(.numericText(value: NSDecimalNumber(decimal: record.item.stockLevel).doubleValue))
                 .animation(.easeInOut(duration: 0.2), value: record.item.stockLevel)
                 .onTapGesture {
                     if coordinator.isManager {
@@ -1373,7 +1373,7 @@ private struct MacCategoryItemDetailView: View {
                         TextField("Quantity", value: Binding(
                             get: { record.item.stockLevel },
                             set: { record.item.stockLevel = max(0, $0) }
-                        ), formatter: NumberFormatter.decimalFormatter)
+                        ), format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
                         .multilineTextAlignment(.center)
@@ -1484,11 +1484,8 @@ private struct MacCategoryItemDetailView: View {
         }
     }
 
-    private func formattedQuantity(_ value: Double) -> String {
-        if value.truncatingRemainder(dividingBy: 1) == 0 {
-            return String(format: "%.0f", value)
-        }
-        return String(format: "%.1f", value)
+    private func formattedQuantity(_ value: Decimal) -> String {
+        value.formatted(.number.precision(.fractionLength(0...2)))
     }
 }
 #endif
@@ -2391,7 +2388,7 @@ struct InventoryItemRow: View {
                             Text("•")
                                 .foregroundColor(.secondary)
 
-                            Text("Min \(formatValue(item.parLevel))")
+                            Text("Min \(formatValue(item.parLevel)) \(item.unitType)")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             
@@ -2446,7 +2443,7 @@ struct InventoryItemRow: View {
                     } label: {
                         Text(formatValue(item.stockLevel))
                             .font(.system(size: 18, weight: .semibold, design: .monospaced))
-                            .contentTransition(.numericText(value: item.stockLevel))
+                            .contentTransition(.numericText(value: NSDecimalNumber(decimal: item.stockLevel).doubleValue))
                             .animation(.easeInOut(duration: 0.2), value: item.stockLevel)
                             .frame(width: 64, alignment: .center)
                             .frame(minHeight: 36)
@@ -2469,7 +2466,7 @@ struct InventoryItemRow: View {
             } else {
                 Text(formatValue(item.stockLevel))
                     .font(.headline.monospacedDigit())
-                    .contentTransition(.numericText(value: item.stockLevel))
+                    .contentTransition(.numericText(value: NSDecimalNumber(decimal: item.stockLevel).doubleValue))
                     .animation(.easeInOut(duration: 0.2), value: item.stockLevel)
             }
         }
@@ -2513,19 +2510,17 @@ struct InventoryItemRow: View {
     }
     
     private func updateLevel(by direction: Double) {
-        let isDecimal = item.parLevel.truncatingRemainder(dividingBy: 1) != 0 ||
-                        item.stockLevel.truncatingRemainder(dividingBy: 1) != 0
-        
-        let step = isDecimal ? 0.1 : 1.0
-        let newLevel = max(0, item.stockLevel + (direction * step))
+        // Simple logic for drag/buttons - assuming 1 or 0.1 step
+        let step = Decimal(direction) // Simplified step
+        let newLevel = max(0, item.stockLevel + step)
         withAnimation(.easeInOut(duration: 0.2)) {
             item.stockLevel = newLevel
             item.amountOnHand = newLevel
         }
     }
     
-    private func formatValue(_ val: Double) -> String {
-        val.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", val) : String(format: "%.1f", val)
+    private func formatValue(_ val: Decimal) -> String {
+        val.formatted(.number.precision(.fractionLength(0...2)))
     }
 }
 
@@ -2540,6 +2535,7 @@ struct AddInventoryItemView: View {
     @State private var amountOnHand = ""
     @State private var selectedUnit: UnitType = .bottles
     @State private var vendor = ""
+    @State private var price = ""
     
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2594,6 +2590,7 @@ struct AddInventoryItemView: View {
                 Section("Item Details") {
                     TextField("Item Name", text: $name)
                     TextField("Vendor (optional)", text: $vendor)
+                    TextField("Price per Unit (optional)", text: $price)
                 }
                 
                 Section("Quantities") {
@@ -2655,13 +2652,14 @@ struct AddInventoryItemView: View {
                         
                         let newItem = InventoryItem(
                             name: trimmedName,
-                            stockLevel: clampedOnHand,
-                            parLevel: parValue,
+                            stockLevel: Decimal(clampedOnHand),
+                            parLevel: Decimal(parValue),
                             unitType: selectedUnit.rawValue,
-                            amountOnHand: clampedOnHand,
-                            vendor: trimmedVendor.isEmpty ? nil : trimmedVendor
+                            baseUnit: selectedUnit.rawValue, // Default to same unit for simple add
+                            amountOnHand: Decimal(clampedOnHand),
+                            vendor: trimmedVendor.isEmpty ? nil : trimmedVendor,
+                            pricePerUnit: Double(price) == nil ? nil : Decimal(Double(price)!)
                         )
-                        newItem.location = location
                         modelContext.insert(newItem)
                         do {
                             try modelContext.save()
@@ -2680,10 +2678,7 @@ struct AddInventoryItemView: View {
     }
 
     private func formattedQuantity(_ value: Double) -> String {
-        if value.truncatingRemainder(dividingBy: 1) == 0 {
-            return String(format: "%.0f", value)
-        }
-        return String(format: "%.1f", value)
+        return Decimal(value).formatted(.number.precision(.fractionLength(0...1)))
     }
 }
 
@@ -2707,10 +2702,7 @@ struct AmountOnHandEditorSheet: View {
     init(item: InventoryItem) {
         self.item = item
         _amountOnHandText = State(
-            initialValue: String(
-                format: item.stockLevel.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f",
-                item.stockLevel
-            )
+            initialValue: item.stockLevel.formatted(.number.precision(.fractionLength(0...1)))
         )
     }
 
@@ -2757,7 +2749,7 @@ struct AmountOnHandEditorSheet: View {
 
     private func saveAmountOnHand() {
         guard let parsedAmount else { return }
-        let clampedAmount = max(0, parsedAmount)
+        let clampedAmount = max(0, Decimal(parsedAmount))
         item.stockLevel = clampedAmount
         item.amountOnHand = clampedAmount
 
@@ -2977,6 +2969,7 @@ struct ItemSettingsSheet: View {
     @State private var parLevel: String
     @State private var selectedUnit: UnitType
     @State private var vendor: String
+    @State private var price: String
     @State private var notes: String
     @State private var selectedCategory: InventoryCategory?
     @State private var selectedLocation: InventoryLocation?
@@ -2997,10 +2990,11 @@ struct ItemSettingsSheet: View {
     init(item: InventoryItem) {
         self.item = item
         _name = State(initialValue: item.name)
-        _stockLevel = State(initialValue: item.stockLevel == 0 ? "" : String(format: item.stockLevel.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f", item.stockLevel))
-        _parLevel = State(initialValue: item.parLevel == 0 ? "" : String(format: item.parLevel.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f", item.parLevel))
+        _stockLevel = State(initialValue: item.stockLevel == 0 ? "" : item.stockLevel.formatted(.number.precision(.fractionLength(0...1))))
+        _parLevel = State(initialValue: item.parLevel == 0 ? "" : item.parLevel.formatted(.number.precision(.fractionLength(0...1))))
         _selectedUnit = State(initialValue: UnitType(rawValue: item.unitType) ?? .units)
         _vendor = State(initialValue: item.vendor ?? "")
+        _price = State(initialValue: item.pricePerUnit == nil ? "" : item.pricePerUnit!.formatted(.number.precision(.fractionLength(2))))
         _notes = State(initialValue: item.notes ?? "")
         _selectedCategory = State(initialValue: item.location?.category)
         _selectedLocation = State(initialValue: item.location)
@@ -3046,6 +3040,7 @@ struct ItemSettingsSheet: View {
                 Section("Item Details") {
                     TextField("Name", text: $name)
                     TextField("Vendor (optional)", text: $vendor)
+                    TextField("Price per Unit (optional)", text: $price)
                 }
                 
                 Section("Quantities") {
@@ -3168,11 +3163,12 @@ struct ItemSettingsSheet: View {
         let clampedPar = max(0, parsedPar)
 
         item.name = trimmedName
-        item.stockLevel = clampedStock
-        item.amountOnHand = clampedStock
-        item.parLevel = clampedPar
+        item.stockLevel = Decimal(clampedStock)
+        item.amountOnHand = Decimal(clampedStock)
+        item.parLevel = Decimal(clampedPar)
         item.unitType = selectedUnit.rawValue
         item.vendor = trimmedVendor.isEmpty ? nil : trimmedVendor
+        item.pricePerUnit = Double(price) == nil ? nil : Decimal(Double(price)!)
         item.notes = trimmedNotes.isEmpty ? nil : trimmedNotes
         
         // Handle location change
@@ -3205,10 +3201,7 @@ struct ItemSettingsSheet: View {
     }
 
     private func formattedQuantity(_ value: Double) -> String {
-        if value.truncatingRemainder(dividingBy: 1) == 0 {
-            return String(format: "%.0f", value)
-        }
-        return String(format: "%.1f", value)
+        return Decimal(value).formatted(.number.precision(.fractionLength(0...1)))
     }
 }
 

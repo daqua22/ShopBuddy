@@ -3,8 +3,6 @@ import SwiftData
 
 // MARK: - Schema V1 (Original)
 // Snapshot of models BEFORE the payroll audit + drag-and-drop changes.
-// Used only as a migration source — the live app always runs on the latest schema.
-
 enum SchemaV1: VersionedSchema {
     static var versionIdentifier = Schema.Version(1, 0, 0)
 
@@ -23,11 +21,6 @@ enum SchemaV1: VersionedSchema {
             AppSettings.self
         ]
     }
-
-    // Only models that CHANGED between V1→V2 need V1 copies.
-    // Unchanged models (Employee, Shift, etc.) are shared across versions.
-    // NOTE: Inventory hierarchy must be fully versioned because InventoryItem (V1)
-    // requires InventoryLocation (V1), which requires InventoryCategory (V1).
 
     @Model
     final class InventoryCategory {
@@ -70,8 +63,7 @@ enum SchemaV1: VersionedSchema {
         var notes: String?
         var lastRestocked: Date?
         var location: InventoryLocation?
-        // No sortOrder in V1
-
+        
         init(name: String, stockLevel: Double, parLevel: Double, unitType: String) {
             self.id = UUID()
             self.name = name
@@ -122,7 +114,6 @@ enum SchemaV1: VersionedSchema {
         var id: UUID
         var allowEmployeeInventoryEdit: Bool
         var requireClockInForChecklists: Bool
-        // No enableDragAndDrop in V1
         var operatingDaysRaw: String
         var openTime: Date
         var closeTime: Date
@@ -140,8 +131,7 @@ enum SchemaV1: VersionedSchema {
 }
 
 // MARK: - Schema V2 (Current)
-// After payroll audit (renames) + drag-and-drop (new fields).
-
+// After payroll audit (renames) + drag-and-drop (new fields) + pricePerUnit.
 enum SchemaV2: VersionedSchema {
     static var versionIdentifier = Schema.Version(2, 0, 0)
 
@@ -157,38 +147,15 @@ enum SchemaV2: VersionedSchema {
             DailyTips.self,
             DailyTask.self,
             PayPeriod.self,
-            AppSettings.self
+            AppSettings.self,
+            
+            // Recipes
+            PrepCategory.self,
+            RecipeTemplate.self,
+            RecipeIngredient.self,
+            RecipeStep.self,
+            RecipeBatch.self,
+            InventoryDeduction.self
         ]
     }
-}
-
-// MARK: - Migration Plan
-
-enum ShopBuddyMigrationPlan: SchemaMigrationPlan {
-    static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self]
-    }
-
-    static var stages: [MigrationStage] {
-        [migrateV1toV2]
-    }
-
-    // Lightweight migration handles:
-    //  • Adding new properties with defaults (sortOrder, enableDragAndDrop)
-    //  • Column renames via @Attribute(originalName:) on the V2 models
-    //
-    // Custom migration is needed for:
-    //  • Model rename PayrollPeriod → PayPeriod (table-level rename)
-    static let migrateV1toV2 = MigrationStage.custom(
-        fromVersion: SchemaV1.self,
-        toVersion: SchemaV2.self,
-        willMigrate: nil,
-        didMigrate: { context in
-            // The custom stage lets SwiftData handle the schema diff
-            // (new columns, renamed columns via @Attribute(originalName:)).
-            // The PayrollPeriod→PayPeriod rename works because SwiftData
-            // maps old table data via the VersionedSchema definitions.
-            try context.save()
-        }
-    )
 }
