@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  ShopBuddy
+//  PrepIt
 //
 //  Created by Dan on 1/29/26.
 //
@@ -67,6 +67,15 @@ struct ContentView: View {
         }
         .onChange(of: undoManager) { _, newValue in
             modelContext.undoManager = newValue
+        }
+        .onChange(of: coordinator.requestedTab) { _, newValue in
+            guard let newValue, visibleTabs.contains(newValue) else { return }
+            #if os(macOS)
+            selectedSidebarTab = newValue
+            #else
+            selectedTab = newValue
+            #endif
+            coordinator.requestedTab = nil
         }
         .onChange(of: selectedSidebarTab) { _, newValue in
             #if os(macOS)
@@ -135,7 +144,7 @@ struct ContentView: View {
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
-            .navigationTitle("ShopBuddy")
+            .navigationTitle("PrepIt")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260)
         } detail: {
             tabContent(for: currentMacTab)
@@ -253,6 +262,7 @@ struct ContentView: View {
     private func tabContent(for tab: TabItem) -> some View {
         switch tab {
         case .dashboard: DashboardView()
+        case .schedule: ScheduleBoardView()
         case .recipes: RecipesNavigationView()
         case .inventory: InventoryView()
         case .checklists: ChecklistsView()
@@ -271,7 +281,7 @@ struct ContentView: View {
     }
 
     private var sidebarPrimaryTabs: [TabItem] {
-        let preferredOrder: [TabItem] = [.dashboard, .recipes, .inventory, .checklists, .dailyTasks, .clockInOut, .tips]
+        let preferredOrder: [TabItem] = [.dashboard, .schedule, .recipes, .inventory, .checklists, .dailyTasks, .clockInOut, .tips]
         return preferredOrder.filter(visibleTabs.contains)
     }
 
@@ -357,7 +367,7 @@ struct OnboardingView: View {
                         .foregroundColor(.white)
                         .padding(.bottom, 8)
                     
-                    Text("ShopBuddy")
+                    Text("PrepIt")
                         .font(DesignSystem.Typography.largeTitle)
                         .fontWeight(.bold)
                         .foregroundColor(.white)
@@ -456,7 +466,7 @@ struct OnboardingView: View {
                     .font(.system(size: 72))
                     .foregroundColor(DesignSystem.Colors.accent)
 
-                Text("Welcome to ShopBuddy")
+                Text("Welcome to PrepIt")
                     .font(DesignSystem.Typography.largeTitle)
                     .foregroundColor(DesignSystem.Colors.primary)
 

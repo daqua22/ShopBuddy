@@ -29,9 +29,6 @@ struct BackupMetadata: Codable {
 }
 
 // MARK: - Codable Mirrors of SwiftData Models
-// We use separate structs to ensure stable serialization even if internal models change slightly,
-// and to break circular references during encoding (though ID referencing handles that).
-
 struct InventoryCategoryCodable: Codable {
     let id: UUID
     let name: String
@@ -52,6 +49,7 @@ struct InventoryItemCodable: Codable {
     let parLevel: Decimal
     let amountOnHand: Decimal
     let unitType: String
+    let baseUnit: String          // ← ADDED
     let vendor: String?
     let pricePerUnit: Decimal?
     let notes: String?
@@ -149,37 +147,67 @@ final class BackupService {
             schemaVersion: 2
         )
         
-        // Fetch All Data
         let categories = try modelContext.fetch(FetchDescriptor<InventoryCategory>())
         let locations = try modelContext.fetch(FetchDescriptor<InventoryLocation>())
         let items = try modelContext.fetch(FetchDescriptor<InventoryItem>())
-        
         let templates = try modelContext.fetch(FetchDescriptor<ChecklistTemplate>())
         let tasks = try modelContext.fetch(FetchDescriptor<ChecklistTask>())
-        
         let employees = try modelContext.fetch(FetchDescriptor<Employee>())
         let shifts = try modelContext.fetch(FetchDescriptor<Shift>())
         let payPeriods = try modelContext.fetch(FetchDescriptor<PayPeriod>())
-        
         let dailyTasks = try modelContext.fetch(FetchDescriptor<DailyTask>())
         let dailyTips = try modelContext.fetch(FetchDescriptor<DailyTips>())
-        
         let settings = try modelContext.fetch(FetchDescriptor<AppSettings>())
         
-        // Map to Codable
         let backup = BackupData(
             metadata: metadata,
-            categories: categories.map { InventoryCategoryCodable(id: $0.id, name: $0.name, emoji: $0.emoji) },
-            locations: locations.map { InventoryLocationCodable(id: $0.id, name: $0.name, emoji: $0.emoji, categoryID: $0.category?.id) },
-            items: items.map { InventoryItemCodable(id: $0.id, name: $0.name, stockLevel: $0.stockLevel, parLevel: $0.parLevel, amountOnHand: $0.amountOnHand, unitType: $0.unitType, vendor: $0.vendor, pricePerUnit: $0.pricePerUnit, notes: $0.notes, lastRestocked: $0.lastRestocked, locationID: $0.location?.id, sortOrder: $0.sortOrder) },
-            checklistTemplates: templates.map { ChecklistTemplateCodable(id: $0.id, title: $0.title) },
-            checklistTasks: tasks.map { ChecklistTaskCodable(id: $0.id, title: $0.title, isCompleted: $0.isCompleted, sortOrder: $0.sortOrder, templateID: $0.template?.id, completedBy: $0.completedBy, completedAt: $0.completedAt) },
-            employees: employees.map { EmployeeCodable(id: $0.id, name: $0.name, pin: $0.pin, roleRaw: $0.roleRaw, hourlyWage: $0.hourlyWage, birthday: $0.birthday, createdAt: $0.createdAt, isActive: $0.isActive) },
-            shifts: shifts.map { ShiftCodable(id: $0.id, employeeID: $0.employee?.id, clockInTime: $0.clockInTime, clockOutTime: $0.clockOutTime, includeTips: $0.includeTips) },
-            payPeriods: payPeriods.map { PayPeriodCodable(id: $0.id, startDate: $0.startDate, endDate: $0.endDate, isReviewed: $0.isReviewed, includeTips: $0.includeTips, notes: $0.notes, reviewedDate: $0.reviewedDate) },
-            dailyTasks: dailyTasks.map { DailyTaskCodable(id: $0.id, title: $0.title, isCompleted: $0.isCompleted, targetDate: $0.targetDate, completedBy: $0.completedBy, completedAt: $0.completedAt, sortOrder: $0.sortOrder) },
-            dailyTips: dailyTips.map { DailyTipsCodable(id: $0.id, date: $0.date, totalAmount: $0.totalAmount, isDistributed: $0.isDistributed, distributedDate: $0.distributedDate) },
-            settings: settings.map { AppSettingsCodable(id: $0.id, allowEmployeeInventoryEdit: $0.allowEmployeeInventoryEdit, requireClockInForChecklists: $0.requireClockInForChecklists, enableDragAndDrop: $0.enableDragAndDrop, operatingDaysRaw: $0.operatingDaysRaw, openTime: $0.openTime, closeTime: $0.closeTime) }
+            categories: categories.map {
+                InventoryCategoryCodable(id: $0.id, name: $0.name, emoji: $0.emoji)
+            },
+            locations: locations.map {
+                InventoryLocationCodable(id: $0.id, name: $0.name, emoji: $0.emoji, categoryID: $0.category?.id)
+            },
+            items: items.map {
+                InventoryItemCodable(
+                    id: $0.id,
+                    name: $0.name,
+                    stockLevel: $0.stockLevel,
+                    parLevel: $0.parLevel,
+                    amountOnHand: $0.amountOnHand,
+                    unitType: $0.unitType,
+                    baseUnit: $0.baseUnit.rawValue,
+                    vendor: $0.vendor,
+                    pricePerUnit: $0.pricePerUnit,
+                    notes: $0.notes,
+                    lastRestocked: $0.lastRestocked,
+                    locationID: $0.location?.id,
+                    sortOrder: $0.sortOrder
+                )
+            },
+            checklistTemplates: templates.map {
+                ChecklistTemplateCodable(id: $0.id, title: $0.title)
+            },
+            checklistTasks: tasks.map {
+                ChecklistTaskCodable(id: $0.id, title: $0.title, isCompleted: $0.isCompleted, sortOrder: $0.sortOrder, templateID: $0.template?.id, completedBy: $0.completedBy, completedAt: $0.completedAt)
+            },
+            employees: employees.map {
+                EmployeeCodable(id: $0.id, name: $0.name, pin: $0.pin, roleRaw: $0.roleRaw, hourlyWage: $0.hourlyWage, birthday: $0.birthday, createdAt: $0.createdAt, isActive: $0.isActive)
+            },
+            shifts: shifts.map {
+                ShiftCodable(id: $0.id, employeeID: $0.employee?.id, clockInTime: $0.clockInTime, clockOutTime: $0.clockOutTime, includeTips: $0.includeTips)
+            },
+            payPeriods: payPeriods.map {
+                PayPeriodCodable(id: $0.id, startDate: $0.startDate, endDate: $0.endDate, isReviewed: $0.isReviewed, includeTips: $0.includeTips, notes: $0.notes, reviewedDate: $0.reviewedDate)
+            },
+            dailyTasks: dailyTasks.map {
+                DailyTaskCodable(id: $0.id, title: $0.title, isCompleted: $0.isCompleted, targetDate: $0.targetDate, completedBy: $0.completedBy, completedAt: $0.completedAt, sortOrder: $0.sortOrder)
+            },
+            dailyTips: dailyTips.map {
+                DailyTipsCodable(id: $0.id, date: $0.date, totalAmount: $0.totalAmount, isDistributed: $0.isDistributed, distributedDate: $0.distributedDate)
+            },
+            settings: settings.map {
+                AppSettingsCodable(id: $0.id, allowEmployeeInventoryEdit: $0.allowEmployeeInventoryEdit, requireClockInForChecklists: $0.requireClockInForChecklists, enableDragAndDrop: $0.enableDragAndDrop, operatingDaysRaw: $0.operatingDaysRaw, openTime: $0.openTime, closeTime: $0.closeTime)
+            }
         )
         
         let encoder = JSONEncoder()
@@ -194,10 +222,7 @@ final class BackupService {
         decoder.dateDecodingStrategy = .iso8601
         let backup = try decoder.decode(BackupData.self, from: json)
         
-        // 1. Clear existing data
         try clearAllData()
-        
-        // 2. Insert new data (Lookup dictionaries for relationships)
         
         // --- Inventory ---
         var categoryMap: [UUID: InventoryCategory] = [:]
@@ -220,7 +245,18 @@ final class BackupService {
         }
         
         for i in backup.items {
-            let item = InventoryItem(name: i.name, stockLevel: i.stockLevel, parLevel: i.parLevel, unitType: i.unitType, amountOnHand: i.amountOnHand, vendor: i.vendor, pricePerUnit: i.pricePerUnit, notes: i.notes, sortOrder: i.sortOrder)
+            let item = InventoryItem(
+                name: i.name,
+                stockLevel: i.stockLevel,
+                parLevel: i.parLevel,
+                unitType: i.unitType,
+                baseUnit: i.baseUnit,
+                amountOnHand: i.amountOnHand,
+                vendor: i.vendor,
+                pricePerUnit: i.pricePerUnit,
+                notes: i.notes,
+                sortOrder: i.sortOrder
+            )
             item.id = i.id
             item.lastRestocked = i.lastRestocked
             if let locID = i.locationID, let loc = locationMap[locID] {
@@ -253,7 +289,6 @@ final class BackupService {
         // --- Operations ---
         var employeeMap: [UUID: Employee] = [:]
         for e in backup.employees {
-            // Reconstruct logic for role enum
             let role = EmployeeRole(rawValue: e.roleRaw) ?? .employee
             let employee = Employee(name: e.name, pin: e.pin, role: role, hourlyWage: e.hourlyWage, birthday: e.birthday)
             employee.id = e.id

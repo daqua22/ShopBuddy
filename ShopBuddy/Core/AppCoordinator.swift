@@ -13,6 +13,7 @@ final class AppCoordinator {
     var currentViewState: ViewState = .publicView
     var currentEmployee: Employee?
     var isAuthenticated: Bool = false
+    var requestedTab: TabItem?
     
     var isManager: Bool {
         if case .managerView = currentViewState { return true }
@@ -34,6 +35,7 @@ final class AppCoordinator {
         currentEmployee = nil
         isAuthenticated = false
         currentViewState = .publicView
+        requestedTab = nil
     }
 
     var currentUserDisplayName: String { currentEmployee?.name ?? "Guest" }
@@ -42,6 +44,7 @@ final class AppCoordinator {
 
 enum TabItem: String, CaseIterable {
     case dashboard = "Dashboard"
+    case schedule = "Schedule"
     case recipes = "Recipes"
     case inventory = "Inventory"
     case checklists = "Checklists"
@@ -56,6 +59,7 @@ enum TabItem: String, CaseIterable {
     var icon: String {
         switch self {
         case .dashboard: return "house.fill"
+        case .schedule: return "calendar.badge.clock"
         case .recipes: return "book.fill"
         case .inventory: return "shippingbox.fill"
         case .checklists: return "checklist"
@@ -74,9 +78,9 @@ enum TabItem: String, CaseIterable {
         case .publicView:
             return [.dashboard, .recipes, .inventory, .checklists, .dailyTasks, .clockInOut]
         case .employeeView:
-            return [.dashboard, .recipes, .inventory, .checklists, .dailyTasks, .clockInOut, .tips]
+            return [.dashboard, .schedule, .recipes, .inventory, .checklists, .dailyTasks, .clockInOut, .tips]
         case .managerView:
-            return [.dashboard, .recipes, .inventory, .checklists, .dailyTasks, .clockInOut, .tips, .employees, .reports, .paySummary, .settings]
+            return [.dashboard, .schedule, .recipes, .inventory, .checklists, .dailyTasks, .clockInOut, .tips, .employees, .reports, .paySummary, .settings]
         }
     }
 }

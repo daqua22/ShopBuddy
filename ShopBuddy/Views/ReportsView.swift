@@ -1,6 +1,6 @@
 //
 //  ReportsView.swift
-//  ShopBuddy
+//  PrepIt
 //
 //  Created by Dan on 1/29/26.
 //
@@ -12,6 +12,7 @@ import AppKit
 #endif
 
 struct ReportsView: View {
+    @Environment(AppCoordinator.self) private var coordinator
     @Query(sort: \Employee.name) private var employees: [Employee]
     @Query private var checklists: [ChecklistTemplate]
     @Query(
@@ -43,6 +44,13 @@ struct ReportsView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
+                    coordinator.requestedTab = .schedule
+                } label: {
+                    Label("Auto-Schedule", systemImage: "calendar.badge.clock")
+                }
+                .help("Open auto-schedule suggestions")
+
+                Button {
                     showingDateRangePicker = true
                 } label: {
                     Label(selectedDateRange.rangeString(), systemImage: "calendar")
@@ -56,6 +64,17 @@ struct ReportsView: View {
                         Label("Clear Search", systemImage: "xmark.circle")
                     }
                     .help("Clear report search")
+                }
+            }
+        }
+        #endif
+        #if !os(macOS)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    coordinator.requestedTab = .schedule
+                } label: {
+                    Label("Auto-Schedule", systemImage: "calendar.badge.clock")
                 }
             }
         }

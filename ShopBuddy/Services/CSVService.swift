@@ -182,21 +182,14 @@ final class CSVService {
             let locName   = val(.location) ?? "General"
             let unit      = val(.unit)     ?? "Units"
             
-            // Helper for Decimal parsing
-            func parseDecimal(_ string: String?) -> Decimal {
-                guard let string = string, !string.isEmpty else { return 0 }
-                // Try standard decimal conversion
-                return Decimal(string: string, locale: Locale(identifier: "en_US")) ?? 0
-            }
-            
-            let stock     = parseDecimal(val(.stock))
-            let par       = parseDecimal(val(.parLevel))
-            let amount    = parseDecimal(val(.amountOnHand))
+            let stock     = parseDecimalOrZero(val(.stock) ?? "")
+            let par       = parseDecimalOrZero(val(.parLevel) ?? "")
+            let amount    = parseDecimalOrZero(val(.amountOnHand) ?? "")
             let vendor    = val(.vendor)
             
             var price: Decimal? = nil
             if let pString = val(.pricePerUnit), !pString.isEmpty {
-                 price = Decimal(string: pString, locale: Locale(identifier: "en_US"))
+                 price = parseDecimal(pString)
             }
             
             let notes     = val(.notes)

@@ -7,7 +7,7 @@ import UIKit
 import AppKit
 #endif
 
-/// Central design system for ShopBuddy
+/// Central design system for PrepIt
 enum DesignSystem {
     
     // MARK: - Colors

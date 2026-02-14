@@ -31,8 +31,10 @@ final class RecipeTemplate {
     // Photo support (storing as Data for simplicity in this phase, URL support can be added if needed)
     @Attribute(.externalStorage) var photoData: Data?
     
-    var defaultYieldAmount: Decimal
-    var defaultYieldUnit: UnitType
+    @Attribute(originalName: "defaultYieldAmount")
+    var baseYieldAmount: Decimal
+    @Attribute(originalName: "defaultYieldUnit")
+    private var storedBaseYieldUnit: UnitType?
     
     var tagsRaw: String = "" // "vegan,gluten-free"
     var allergensRaw: String = "" // "dairy,peanuts"
@@ -49,12 +51,12 @@ final class RecipeTemplate {
     init(title: String, 
          category: PrepCategory? = nil, 
          yieldAmount: Decimal = 1.0, 
-         yieldUnit: UnitType = .units) {
+         yieldUnit: UnitType = .unit) {
         self.id = UUID()
         self.title = title
         self.category = category
-        self.defaultYieldAmount = yieldAmount
-        self.defaultYieldUnit = yieldUnit
+        self.baseYieldAmount = yieldAmount
+        self.storedBaseYieldUnit = yieldUnit
         self.isArchived = false
         self.createdAt = Date()
         self.updatedAt = Date()
@@ -65,14 +67,56 @@ final class RecipeTemplate {
         set { tagsRaw = newValue.joined(separator: ",") }
     }
     
-    var allergens: Set<String> {
-        get { Set(allergensRaw.split(separator: ",").map { String($0) }) }
-        set { allergensRaw = newValue.sorted().joined(separator: ",") }
+    var allergens: [String] {
+        get {
+            allergensRaw
+                .split(separator: ",")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
+        set {
+            allergensRaw = normalizedCSV(from: newValue)
+        }
     }
     
-    var restrictions: Set<String> {
-        get { Set(restrictionsRaw.split(separator: ",").map { String($0) }) }
-        set { restrictionsRaw = newValue.sorted().joined(separator: ",") }
+    var restrictions: [String] {
+        get {
+            restrictionsRaw
+                .split(separator: ",")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
+        set {
+            restrictionsRaw = normalizedCSV(from: newValue)
+        }
+    }
+
+    var allergensSet: Set<String> {
+        Set(allergens)
+    }
+
+    var restrictionsSet: Set<String> {
+        Set(restrictions)
+    }
+
+    var defaultYieldAmount: Decimal {
+        get { baseYieldAmount }
+        set { baseYieldAmount = newValue }
+    }
+
+    var defaultYieldUnit: UnitType {
+        get { baseYieldUnit }
+        set { baseYieldUnit = newValue }
+    }
+
+    var baseYieldUnit: UnitType {
+        get { storedBaseYieldUnit ?? .unit }
+        set { storedBaseYieldUnit = newValue }
+    }
+
+    private func normalizedCSV(from values: [String]) -> String {
+        let unique = Set(values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+        return unique.sorted().joined(separator: ",")
     }
 }
 
@@ -110,6 +154,11 @@ final class RecipeIngredient {
         self.baseAmount = amount
         self.unit = unit
         self.sortOrder = sortOrder
+    }
+
+    var inventoryItemRef: InventoryItem? {
+        get { inventoryItem }
+        set { inventoryItem = newValue }
     }
 }
 
@@ -158,8 +207,8 @@ final class RecipeBatch {
         self.madeAt = Date()
         self.madeByEmployeeName = employee?.name
         self.scaleMultiplier = multiplier
-        self.finalYieldAmount = template.defaultYieldAmount * multiplier
-        self.finalYieldUnit = template.defaultYieldUnit
+        self.finalYieldAmount = template.baseYieldAmount * multiplier
+        self.finalYieldUnit = template.baseYieldUnit
         self.didDeductInventory = false
     }
 }

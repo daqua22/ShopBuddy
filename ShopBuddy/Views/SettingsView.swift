@@ -1,6 +1,6 @@
 //
 //  SettingsView.swift
-//  ShopBuddy
+//  PrepIt
 //
 //  Created by Dan on 1/30/26.
 //
@@ -237,7 +237,7 @@ struct SettingsView: View {
             Text(resetErrorMessage)
         }
         // File Exporters/Importers
-        .fileExporter(isPresented: $showingBackupExporter, document: backupDocument, contentType: .json, defaultFilename: "ShopBuddy_Backup_\(Date().formatted(.iso8601))") { result in
+        .fileExporter(isPresented: $showingBackupExporter, document: backupDocument, contentType: .json, defaultFilename: "PrepIt_Backup_\(Date().formatted(.iso8601))") { result in
             if case .failure(let error) = result {
                 print("Export failed: \(error.localizedDescription)")
             }
@@ -251,7 +251,7 @@ struct SettingsView: View {
                 showingImportError = true
             }
         }
-        .fileExporter(isPresented: $showingCSVExporter, document: csvDocument, contentType: .commaSeparatedText, defaultFilename: "ShopBuddy_Inventory_\(Date().formatted(.iso8601))") { result in
+        .fileExporter(isPresented: $showingCSVExporter, document: csvDocument, contentType: .commaSeparatedText, defaultFilename: "PrepIt_Inventory_\(Date().formatted(.iso8601))") { result in
              if case .failure(let error) = result {
                  print("Export failed: \(error.localizedDescription)")
              }
@@ -309,6 +309,13 @@ struct SettingsView: View {
             try modelContext.fetch(FetchDescriptor<PayPeriod>()).forEach { modelContext.delete($0) }
             try modelContext.fetch(FetchDescriptor<Shift>()).forEach { modelContext.delete($0) }
             try modelContext.fetch(FetchDescriptor<Employee>()).forEach { modelContext.delete($0) }
+
+            // Scheduling
+            try modelContext.fetch(FetchDescriptor<CoverageRequirement>()).forEach { modelContext.delete($0) }
+            try modelContext.fetch(FetchDescriptor<EmployeeAvailabilityWindow>()).forEach { modelContext.delete($0) }
+            try modelContext.fetch(FetchDescriptor<EmployeeAvailabilityOverride>()).forEach { modelContext.delete($0) }
+            try modelContext.fetch(FetchDescriptor<EmployeeUnavailableDate>()).forEach { modelContext.delete($0) }
+            try modelContext.fetch(FetchDescriptor<PlannedShift>()).forEach { modelContext.delete($0) }
             
             // Settings
             try modelContext.fetch(FetchDescriptor<AppSettings>()).forEach { modelContext.delete($0) }

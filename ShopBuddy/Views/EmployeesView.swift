@@ -1,6 +1,6 @@
 //
 //  EmployeesView.swift
-//  ShopBuddy
+//  PrepIt
 //
 //  Created by Dan on 1/29/26.
 //
@@ -13,6 +13,7 @@ struct EmployeesView: View {
     @Environment(\.modelContext) private var modelContext
     
     @Query(sort: \Employee.name) private var allEmployees: [Employee]
+    @Query private var allAvailabilityWindows: [EmployeeAvailabilityWindow]
     
     @State private var showingAddEmployee = false
     @State private var editingEmployee: Employee?
@@ -307,6 +308,11 @@ struct EmployeesView: View {
     }
 
     private func delete(_ employee: Employee) {
+        let scopedWindows = allAvailabilityWindows.filter {
+            $0.shopId == ShopContext.activeShopID && $0.employee?.id == employee.id
+        }
+        scopedWindows.forEach(modelContext.delete)
+
         modelContext.delete(employee)
 
         if selectedEmployeeID == employee.id.uuidString {
@@ -434,12 +440,36 @@ struct EmployeeRow: View {
     }
 }
 
+private struct EmployeeAvailabilityDraft: Identifiable, Hashable {
+    let id: Int // 0 = Mon ... 6 = Sun
+    var isEnabled: Bool
+    var startMinutes: Int
+    var endMinutes: Int
+
+    var title: String {
+        ScheduleDayMapper.shortName(for: id)
+    }
+
+    static var defaults: [EmployeeAvailabilityDraft] {
+        (0...6).map { dayIndex in
+            EmployeeAvailabilityDraft(
+                id: dayIndex,
+                isEnabled: false,
+                startMinutes: 7 * 60,
+                endMinutes: 15 * 60
+            )
+        }
+    }
+}
+
 // MARK: - Add/Edit Employee View
 struct AddEditEmployeeView: View {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Employee.name) private var allEmployees: [Employee]
+    @Query(sort: [SortDescriptor(\EmployeeAvailabilityWindow.dayOfWeek), SortDescriptor(\EmployeeAvailabilityWindow.startMinutes)])
+    private var allAvailabilityWindows: [EmployeeAvailabilityWindow]
     @AppStorage("passIssuerBaseURL") private var passIssuerBaseURL = ""
     @AppStorage("enableGoogleWalletPasses") private var enableGoogleWalletPasses = true
     
@@ -452,6 +482,8 @@ struct AddEditEmployeeView: View {
     @State private var isActive = true
     @State private var birthday: Date? = nil
     @State private var hasBirthday = false
+    @State private var availabilityDrafts: [EmployeeAvailabilityDraft] = EmployeeAvailabilityDraft.defaults
+    @State private var availabilityLoaded = false
     
     @State private var showError = false
     @State private var errorMessage = ""
@@ -514,6 +546,39 @@ struct AddEditEmployeeView: View {
                             displayedComponents: .date
                         )
                     }
+                }
+
+                Section("Availability") {
+                    ForEach($availabilityDrafts) { $draft in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle(draft.title, isOn: $draft.isEnabled)
+
+                            if draft.isEnabled {
+                                availabilityTimeRow(
+                                    title: "Start",
+                                    timeText: ScheduleCalendarService.timeLabel(for: draft.startMinutes)
+                                ) {
+                                    draft.startMinutes = max(0, min(draft.endMinutes - 15, draft.startMinutes - 15))
+                                } increment: {
+                                    draft.startMinutes = max(0, min(draft.endMinutes - 15, draft.startMinutes + 15))
+                                }
+
+                                availabilityTimeRow(
+                                    title: "End",
+                                    timeText: ScheduleCalendarService.timeLabel(for: draft.endMinutes)
+                                ) {
+                                    draft.endMinutes = max(draft.startMinutes + 15, min(24 * 60, draft.endMinutes - 15))
+                                } increment: {
+                                    draft.endMinutes = max(draft.startMinutes + 15, min(24 * 60, draft.endMinutes + 15))
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+
+                    Text(employee == nil ? "Availability will be saved when you create this employee." : "Weekly recurring availability windows.")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(.secondary)
                 }
                 
                 if let employee {
@@ -578,6 +643,9 @@ struct AddEditEmployeeView: View {
                     }
                     .disabled(!isValid)
                 }
+            }
+            .onAppear {
+                loadAvailabilityIfNeeded()
             }
     }
     
@@ -668,6 +736,7 @@ struct AddEditEmployeeView: View {
             employee.hourlyWage = wage
             employee.birthday = hasBirthday ? birthday : nil
             employee.isActive = isActive
+            saveAvailability(for: employee)
         } else {
             // Create new employee
             let newEmployee = Employee(
@@ -678,6 +747,7 @@ struct AddEditEmployeeView: View {
                 birthday: hasBirthday ? birthday : nil
             )
             modelContext.insert(newEmployee)
+            saveAvailability(for: newEmployee)
         }
         
         do {
@@ -693,6 +763,11 @@ struct AddEditEmployeeView: View {
     
     private func deleteEmployee() {
         guard let employee = employee else { return }
+
+        let scopedWindows = allAvailabilityWindows.filter {
+            $0.shopId == ShopContext.activeShopID && $0.employee?.id == employee.id
+        }
+        scopedWindows.forEach(modelContext.delete)
         
         modelContext.delete(employee)
         
@@ -704,6 +779,84 @@ struct AddEditEmployeeView: View {
             errorMessage = "Failed to delete employee: \(error.localizedDescription)"
             showError = true
             DesignSystem.HapticFeedback.trigger(.error)
+        }
+    }
+
+    private func availabilityTimeRow(
+        title: String,
+        timeText: String,
+        decrement: @escaping () -> Void,
+        increment: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            Text(title)
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button {
+                decrement()
+            } label: {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.plain)
+
+            Text(timeText)
+                .font(.system(.caption, design: .monospaced))
+                .frame(minWidth: 72, alignment: .center)
+
+            Button {
+                increment()
+            } label: {
+                Image(systemName: "plus.circle")
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func loadAvailabilityIfNeeded() {
+        guard !availabilityLoaded else { return }
+        defer { availabilityLoaded = true }
+        guard let employee else { return }
+
+        var drafts = EmployeeAvailabilityDraft.defaults
+        let scoped = allAvailabilityWindows.filter {
+            $0.shopId == ShopContext.activeShopID && $0.employee?.id == employee.id
+        }
+
+        for dayIndex in 0...6 {
+            let weekday = ScheduleDayMapper.weekday(fromDayIndex: dayIndex)
+            let windows = scoped.filter { $0.dayOfWeek == weekday }
+            guard !windows.isEmpty else { continue }
+
+            let minStart = windows.map(\.startMinutes).min() ?? 7 * 60
+            let maxEnd = windows.map(\.endMinutes).max() ?? 15 * 60
+            drafts[dayIndex].isEnabled = true
+            drafts[dayIndex].startMinutes = max(0, min(24 * 60 - 15, minStart))
+            drafts[dayIndex].endMinutes = max(drafts[dayIndex].startMinutes + 15, min(24 * 60, maxEnd))
+        }
+
+        availabilityDrafts = drafts
+    }
+
+    private func saveAvailability(for employee: Employee) {
+        let scopedWindows = allAvailabilityWindows.filter {
+            $0.shopId == ShopContext.activeShopID && $0.employee?.id == employee.id
+        }
+        scopedWindows.forEach(modelContext.delete)
+
+        for draft in availabilityDrafts where draft.isEnabled {
+            let start = TimeSnapper.snapAndClamp(draft.startMinutes, min: 0, max: 24 * 60 - 15)
+            let end = TimeSnapper.snapAndClamp(draft.endMinutes, min: start + 15, max: 24 * 60)
+
+            modelContext.insert(
+                EmployeeAvailabilityWindow(
+                    shopId: ShopContext.activeShopID,
+                    employee: employee,
+                    dayOfWeek: ScheduleDayMapper.weekday(fromDayIndex: draft.id),
+                    startMinutes: start,
+                    endMinutes: end
+                )
+            )
         }
     }
 }
@@ -941,7 +1094,7 @@ private struct EmployeePassService {
     // Fallback payload used only for development if the pass service is unavailable.
     func localFallbackPayload(for employeeID: UUID) -> String {
         let timestamp = Int(Date().timeIntervalSince1970)
-        return "shopbuddy://clock?employee_id=\(employeeID.uuidString)&issued_at=\(timestamp)"
+        return "prepit://clock?employee_id=\(employeeID.uuidString)&issued_at=\(timestamp)"
     }
 }
 

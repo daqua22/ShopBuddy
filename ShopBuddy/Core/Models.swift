@@ -110,16 +110,32 @@ final class InventoryLocation {
 final class InventoryItem {
     var id: UUID
     var name: String
-    var stockLevel: Decimal // Stored in baseUnit
+    var stockLevel: Decimal { // Legacy compatibility field; mirrors onHandBase.
+        didSet {
+            syncQuantities(preferredOnHand: stockLevel)
+        }
+    }
     var parLevel: Decimal // Stored in baseUnit
-    var amountOnHand: Decimal // Stored in baseUnit
+
+    /// Canonical on-hand amount stored in base units.
+    @Attribute(originalName: "amountOnHand")
+    var onHandBase: Decimal {
+        didSet {
+            syncQuantities(preferredOnHand: onHandBase)
+        }
+    }
+
     var unitType: String // This is now the "Display Unit" (e.g. "Bottles")
-    var baseUnit: String // The unit used for logic/deduction (e.g. "mL" or "g")
+    @Attribute(originalName: "baseUnit")
+    private var baseUnitRaw: String // Persisted raw value for migration-safe enum storage.
     
     // Packaging Metadata
-    var packSize: Decimal? // e.g. 483 (grams per bottle)
-    var packUnit: String? // e.g. "g" (must match baseUnit family)
-    var packDisplayName: String? // e.g. "Bottle"
+    @Attribute(originalName: "packSize")
+    var packSizeBase: Decimal? // e.g. 483 (grams per bottle)
+    @Attribute(originalName: "packUnit")
+    private var packUnitRaw: String? // e.g. "g" (must match baseUnit family)
+    @Attribute(originalName: "packDisplayName")
+    var packName: String? // e.g. "Bottle"
     
     var vendor: String?
     var pricePerUnit: Decimal? // Price per DISPLAY unit
@@ -132,30 +148,139 @@ final class InventoryItem {
          stockLevel: Decimal, 
          parLevel: Decimal, 
          unitType: String,
-         baseUnit: String, // Required now
-         packSize: Decimal? = nil,
-         packUnit: String? = nil,
-         packDisplayName: String? = nil,
-         amountOnHand: Decimal = 0, 
+         baseUnit: UnitType,
+         packSizeBase: Decimal? = nil,
+         packUnit: UnitType? = nil,
+         packName: String? = nil,
+         onHandBase: Decimal = 0, 
          vendor: String? = nil, 
          pricePerUnit: Decimal? = nil, 
          notes: String? = nil, 
          sortOrder: Int = 0) {
         self.id = UUID()
         self.name = name
-        self.stockLevel = stockLevel
+        self.stockLevel = max(0, stockLevel)
         self.parLevel = parLevel
-        self.amountOnHand = amountOnHand
+        self.onHandBase = max(0, onHandBase)
         self.unitType = unitType
-        self.baseUnit = baseUnit
-        self.packSize = packSize
-        self.packUnit = packUnit
-        self.packDisplayName = packDisplayName
+        self.baseUnitRaw = baseUnit.rawValue
+        self.packSizeBase = packSizeBase
+        self.packUnitRaw = packUnit?.rawValue
+        self.packName = packName
         self.vendor = vendor
         self.pricePerUnit = pricePerUnit
         self.notes = notes
         self.lastRestocked = Date()
         self.sortOrder = sortOrder
+
+        syncQuantities(preferredOnHand: self.onHandBase)
+    }
+
+    // Backward-compatible initializer for existing callsites/data import paths.
+    convenience init(name: String,
+                     stockLevel: Decimal,
+                     parLevel: Decimal,
+                     unitType: String,
+                     baseUnit: UnitType,
+                     packSize: Decimal? = nil,
+                     packUnit: UnitType? = nil,
+                     packDisplayName: String? = nil,
+                     amountOnHand: Decimal = 0,
+                     vendor: String? = nil,
+                     pricePerUnit: Decimal? = nil,
+                     notes: String? = nil,
+                     sortOrder: Int = 0) {
+        self.init(
+            name: name,
+            stockLevel: stockLevel,
+            parLevel: parLevel,
+            unitType: unitType,
+            baseUnit: baseUnit,
+            packSizeBase: packSize,
+            packUnit: packUnit,
+            packName: packDisplayName,
+            onHandBase: amountOnHand,
+            vendor: vendor,
+            pricePerUnit: pricePerUnit,
+            notes: notes,
+            sortOrder: sortOrder
+        )
+    }
+
+    // Backward-compatible initializer for existing callsites/data import paths.
+    convenience init(name: String,
+                     stockLevel: Decimal,
+                     parLevel: Decimal,
+                     unitType: String,
+                     baseUnit: String,
+                     packSize: Decimal? = nil,
+                     packUnit: String? = nil,
+                     packDisplayName: String? = nil,
+                     amountOnHand: Decimal = 0,
+                     vendor: String? = nil,
+                     pricePerUnit: Decimal? = nil,
+                     notes: String? = nil,
+                     sortOrder: Int = 0) {
+        self.init(
+            name: name,
+            stockLevel: stockLevel,
+            parLevel: parLevel,
+            unitType: unitType,
+            baseUnit: UnitType(rawValue: baseUnit) ?? .other,
+            packSizeBase: packSize,
+            packUnit: packUnit.flatMap(UnitType.init(rawValue:)),
+            packName: packDisplayName,
+            onHandBase: amountOnHand,
+            vendor: vendor,
+            pricePerUnit: pricePerUnit,
+            notes: notes,
+            sortOrder: sortOrder
+        )
+    }
+
+    @Transient
+    private var isSyncingQuantities: Bool = false
+
+    var amountOnHand: Decimal {
+        get { onHandBase }
+        set { syncQuantities(preferredOnHand: newValue) }
+    }
+
+    var baseUnit: UnitType {
+        get { UnitType(rawValue: baseUnitRaw) ?? .other }
+        set { baseUnitRaw = newValue.rawValue }
+    }
+
+    var packUnit: UnitType? {
+        get { packUnitRaw.flatMap(UnitType.init(rawValue:)) }
+        set { packUnitRaw = newValue?.rawValue }
+    }
+
+    @available(*, deprecated, message: "Use packName")
+    var packDisplayName: String? {
+        get { packName }
+        set { packName = newValue }
+    }
+
+    @available(*, deprecated, message: "Use packSizeBase")
+    var packSize: Decimal? {
+        get { packSizeBase }
+        set { packSizeBase = newValue }
+    }
+
+    func syncQuantities(preferredOnHand: Decimal? = nil) {
+        guard !isSyncingQuantities else { return }
+        isSyncingQuantities = true
+        defer { isSyncingQuantities = false }
+
+        let resolvedOnHand = max(0, preferredOnHand ?? onHandBase)
+        onHandBase = resolvedOnHand
+        stockLevel = resolvedOnHand
+    }
+
+    func validatePackagingFamily() -> Bool {
+        guard let packUnit else { return true }
+        return packUnit.family == baseUnit.family || baseUnit.family == .other
     }
     
     var stockPercentage: Double {
@@ -173,107 +298,161 @@ final class InventoryItem {
 }
 
 // MARK: - Unit Types
+enum UnitFamily: String, Codable, CaseIterable {
+    case mass
+    case volume
+    case count
+    case other
+}
+
 enum UnitType: String, CaseIterable, Codable {
     // Mass
-    case kilograms = "kg"
     case grams = "g"
-    case pounds = "lbs"
+    case kilograms = "kg"
     case ounces = "oz"
-    
+    case pounds = "lb"
+    case poundsLegacy = "lbs" // Backward compatibility for existing data
+
     // Volume
-    case liters = "L"
     case milliliters = "mL"
-    case gallons = "gal"
+    case liters = "L"
+    case teaspoons = "tsp"
+    case tablespoons = "tbsp"
+    case cup = "cup"
+    case cups = "cups" // Backward compatibility for existing data
     case fluidOunces = "fl oz"
-    case cups = "cups"
-    
-    // Count/Packaging
-    case pieces = "Pieces"
-    case units = "Units"
+    case gallons = "gal"
+
+    // Count
+    case piece = "piece"
+    case pieces = "Pieces" // Backward compatibility for existing data
+    case unit = "unit"
+    case units = "Units" // Backward compatibility for existing data
+    case pack = "pack"
+    case packs = "Packs" // Backward compatibility for existing data
+    case caseCount = "case"
+    case cases = "Cases" // Backward compatibility for existing data
     case bottles = "Bottles"
     case cans = "Cans"
     case boxes = "Boxes"
     case bags = "Bags"
-    case packs = "Packs"
-    case cases = "Cases"
-    
+
+    // Other
     case other = "Other"
-    
-    enum Family {
-        case mass
-        case volume
-        case count
-        case unknown
-    }
-    
-    var family: Family {
+
+    var family: UnitFamily {
         switch self {
-        case .kilograms, .grams, .pounds, .ounces:
+        case .grams, .kilograms, .ounces, .pounds, .poundsLegacy:
             return .mass
-        case .liters, .milliliters, .gallons, .fluidOunces, .cups:
+        case .milliliters, .liters, .teaspoons, .tablespoons, .cup, .cups, .fluidOunces, .gallons:
             return .volume
-        case .pieces, .units, .bottles, .cans, .boxes, .bags, .packs, .cases:
+        case .piece, .pieces, .unit, .units, .pack, .packs, .caseCount, .cases, .bottles, .cans, .boxes, .bags:
             return .count
         case .other:
-            return .unknown
+            return .other
         }
     }
-    
-    /// Normalizes the amount to the base unit of the family (kg, L, or self).
-    /// Returns (normalizedAmount, baseUnit).
-    func normalize(_ amount: Decimal) -> Decimal {
+
+    /// Preferred compact label to keep UI display consistent.
+    var displaySymbol: String {
         switch self {
-        // Mass -> kg
-        case .kilograms: return amount
-        case .grams:     return amount / 1000.0
-        case .pounds:    return amount * 0.453592
-        case .ounces:    return amount * 0.0283495
-            
-        // Volume -> L
-        case .liters:      return amount
-        case .milliliters: return amount / 1000.0
-        case .gallons:     return amount * 3.78541
-        case .fluidOunces: return amount * 0.0295735
-        case .cups:        return amount * 0.236588
-            
-        // Count -> Identity
-        default: return amount
+        case .poundsLegacy:
+            return UnitType.pounds.rawValue
+        case .cups:
+            return UnitType.cup.rawValue
+        case .pieces:
+            return UnitType.piece.rawValue
+        case .units:
+            return UnitType.unit.rawValue
+        case .packs:
+            return UnitType.pack.rawValue
+        case .cases:
+            return UnitType.caseCount.rawValue
+        default:
+            return rawValue
         }
     }
-    
-    /// Converts a normalized amount (in base unit) to this unit.
-    func fromBase(_ baseAmount: Decimal) -> Decimal {
+
+    var isLegacyAlias: Bool {
         switch self {
-        // Mass (Base: kg)
-        case .kilograms: return baseAmount
-        case .grams:     return baseAmount * 1000.0
-        case .pounds:    return baseAmount * 2.20462
-        case .ounces:    return baseAmount * 35.274
-            
-        // Volume (Base: L)
-        case .liters:      return baseAmount
-        case .milliliters: return baseAmount * 1000.0
-        case .gallons:     return baseAmount * 0.264172
-        case .fluidOunces: return baseAmount * 33.814
-        case .cups:        return baseAmount * 4.22675
-            
-        // Count
-        default: return baseAmount
+        case .poundsLegacy, .cups, .pieces, .units, .packs, .cases:
+            return true
+        default:
+            return false
         }
     }
-    
+
+    static var selectableCases: [UnitType] {
+        allCases.filter { !$0.isLegacyAlias }
+    }
+
+    private static func decimal(_ string: String) -> Decimal {
+        Decimal(string: string, locale: Locale(identifier: "en_US_POSIX")) ?? 0
+    }
+
+    /// Multiplier to convert this unit into its family base unit.
+    /// Base units used for storage/logic: grams (mass), milliliters (volume), unit-count (count).
+    private var factorToBase: Decimal? {
+        switch self {
+        case .grams:
+            return 1
+        case .kilograms:
+            return 1000
+        case .ounces:
+            return Self.decimal("28.349523125")
+        case .pounds, .poundsLegacy:
+            return Self.decimal("453.59237")
+
+        case .milliliters:
+            return 1
+        case .liters:
+            return 1000
+        case .teaspoons:
+            return Self.decimal("4.92892159375")
+        case .tablespoons:
+            return Self.decimal("14.78676478125")
+        case .cup, .cups:
+            return Self.decimal("236.5882365")
+        case .fluidOunces:
+            return Self.decimal("29.5735295625")
+        case .gallons:
+            return Self.decimal("3785.411784")
+
+        case .piece, .pieces, .unit, .units, .pack, .packs, .caseCount, .cases, .bottles, .cans, .boxes, .bags:
+            return 1
+        case .other:
+            return nil
+        }
+    }
+
     /// Attempts to convert an amount from this unit to a target unit.
-    /// Returns nil if families are incompatible.
+    /// - Returns: Converted amount, or `nil` if conversion is invalid.
+    /// Rules:
+    /// - Only same-family conversions are allowed.
+    /// - `other` converts only to exact same unit.
+    /// - Mass <-> volume conversions are intentionally unsupported in v1 (density not provided).
     func convert(_ amount: Decimal, to target: UnitType) -> Decimal? {
         if self == target { return amount }
-        guard self.family == target.family, self.family != .unknown else { return nil }
-        
-        // 1. Normalize to base
-        let baseAmount = self.normalize(amount)
-        
-        // 2. Convert to target
-        return target.fromBase(baseAmount)
+
+        guard family == target.family else {
+            return nil
+        }
+
+        guard family != .other else {
+            return nil
+        }
+
+        guard let fromFactor = factorToBase, let toFactor = target.factorToBase, toFactor != 0 else {
+            return nil
+        }
+
+        let amountInBase = amount * fromFactor
+        return amountInBase / toFactor
     }
+}
+
+func convert(amount: Decimal, from: UnitType, to: UnitType) -> Decimal? {
+    from.convert(amount, to: to)
 }
 
 // MARK: - Shift

@@ -316,7 +316,7 @@ struct InventoryView: View {
                     .disabled(selectedCategory == nil)
 
                     Button {
-                        NotificationCenter.default.post(name: .shopBuddyInventoryAddItemCommand, object: nil)
+                        NotificationCenter.default.post(name: .prepItInventoryAddItemCommand, object: nil)
                     } label: {
                         Label("Add Item", systemImage: "plus")
                     }
@@ -325,7 +325,7 @@ struct InventoryView: View {
                     .disabled(selectedCategory == nil)
 
                     Button {
-                        NotificationCenter.default.post(name: .shopBuddyInventoryDeleteSelectionCommand, object: nil)
+                        NotificationCenter.default.post(name: .prepItInventoryDeleteSelectionCommand, object: nil)
                     } label: {
                         Image(systemName: "trash")
                     }
@@ -443,15 +443,15 @@ struct InventoryView: View {
                 selectedLocationID = nil
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddCategoryCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryAddCategoryCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
             showingAddCategory = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryFocusSearchCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryFocusSearchCommand)) { _ in
             guard isViewActive else { return }
             isSearchFieldFocused = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryDeleteSelectionCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryDeleteSelectionCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
             #if os(macOS)
             guard selectedMacItemID == nil else { return }
@@ -1191,11 +1191,11 @@ private struct MacCategoryItemDetailView: View {
         .onChange(of: selectedItemID) { _, _ in
             revealSelectedItemIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddItemCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryAddItemCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
             presentAddItemFlow()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryDeleteSelectionCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryDeleteSelectionCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
             deleteSelectedItem()
         }
@@ -1645,15 +1645,15 @@ struct LocationListView: View {
         .onDisappear {
             isViewActive = false
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddLocationCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryAddLocationCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
             showingAddLocation = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryFocusSearchCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryFocusSearchCommand)) { _ in
             guard isViewActive else { return }
             isSearchFieldFocused = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryDeleteSelectionCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryDeleteSelectionCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
             deleteSelectedLocation()
         }
@@ -2029,15 +2029,15 @@ struct ItemListView: View {
         .onChange(of: hiddenItemIDsRaw) { _, _ in
             syncHiddenItemSet()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryAddItemCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryAddItemCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
             showingAddItem = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryFocusSearchCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryFocusSearchCommand)) { _ in
             guard isViewActive else { return }
             isSearchFieldFocused = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .shopBuddyInventoryDeleteSelectionCommand)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .prepItInventoryDeleteSelectionCommand)) { _ in
             guard isViewActive, coordinator.isManager else { return }
             deleteSelectedItem()
         }
@@ -2282,9 +2282,11 @@ struct ItemListView: View {
             stockLevel: item.stockLevel,
             parLevel: item.parLevel,
             unitType: item.unitType,
+            baseUnit: item.baseUnit,
             amountOnHand: item.amountOnHand,
             vendor: item.vendor,
-            notes: item.notes
+            notes: item.notes,
+            sortOrder: item.sortOrder
         )
         duplicate.location = location
         withAnimation(.easeInOut(duration: 0.2)) {
@@ -2631,7 +2633,7 @@ struct AddInventoryItemView: View {
                     }
                     
                     Picker("Unit", selection: $selectedUnit) {
-                        ForEach(UnitType.allCases, id: \.self) { unit in
+                        ForEach(UnitType.selectableCases, id: \.self) { unit in
                             Text(unit.rawValue).tag(unit)
                         }
                     }
@@ -3071,7 +3073,7 @@ struct ItemSettingsSheet: View {
                     }
                     
                     Picker("Unit", selection: $selectedUnit) {
-                        ForEach(UnitType.allCases, id: \.self) { unit in
+                        ForEach(UnitType.selectableCases, id: \.self) { unit in
                             Text(unit.rawValue).tag(unit)
                         }
                     }

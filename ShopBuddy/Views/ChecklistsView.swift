@@ -1,6 +1,6 @@
 //
 //  ChecklistsView.swift
-//  ShopBuddy
+//  PrepIt
 //
 //  Created by Dan on 1/29/26.
 //

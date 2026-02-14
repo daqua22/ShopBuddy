@@ -159,3 +159,50 @@ enum SchemaV2: VersionedSchema {
         ]
     }
 }
+
+// MARK: - Schema V3 (Scheduling + Availability)
+enum SchemaV3: VersionedSchema {
+    static var versionIdentifier = Schema.Version(3, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [
+            Employee.self,
+            Shift.self,
+            InventoryCategory.self,
+            InventoryLocation.self,
+            InventoryItem.self,
+            ChecklistTemplate.self,
+            ChecklistTask.self,
+            DailyTips.self,
+            DailyTask.self,
+            PayPeriod.self,
+            AppSettings.self,
+
+            PrepCategory.self,
+            RecipeTemplate.self,
+            RecipeIngredient.self,
+            RecipeStep.self,
+            RecipeBatch.self,
+            InventoryDeduction.self,
+
+            CoverageRequirement.self,
+            EmployeeAvailabilityWindow.self,
+            EmployeeAvailabilityOverride.self,
+            EmployeeUnavailableDate.self,
+            PlannedShift.self
+        ]
+    }
+}
+
+enum PrepItMigrationPlan: SchemaMigrationPlan {
+    static var schemas: [any VersionedSchema.Type] {
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self]
+    }
+
+    static var stages: [MigrationStage] {
+        [
+            .lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self),
+            .lightweight(fromVersion: SchemaV2.self, toVersion: SchemaV3.self)
+        ]
+    }
+}

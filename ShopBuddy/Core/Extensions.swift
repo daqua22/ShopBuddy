@@ -1,6 +1,6 @@
 //
 //  Extensions.swift
-//  ShopBuddy
+//  PrepIt
 //
 //  Created by Dan on 1/29/26.
 //
@@ -12,11 +12,11 @@ import CoreImage.CIFilterBuiltins
 
 // MARK: - App Commands
 extension Notification.Name {
-    static let shopBuddyInventoryAddCategoryCommand = Notification.Name("shopbuddy.inventory.addCategory")
-    static let shopBuddyInventoryAddLocationCommand = Notification.Name("shopbuddy.inventory.addLocation")
-    static let shopBuddyInventoryAddItemCommand = Notification.Name("shopbuddy.inventory.addItem")
-    static let shopBuddyInventoryFocusSearchCommand = Notification.Name("shopbuddy.inventory.focusSearch")
-    static let shopBuddyInventoryDeleteSelectionCommand = Notification.Name("shopbuddy.inventory.deleteSelection")
+    static let prepItInventoryAddCategoryCommand = Notification.Name("prepit.inventory.addCategory")
+    static let prepItInventoryAddLocationCommand = Notification.Name("prepit.inventory.addLocation")
+    static let prepItInventoryAddItemCommand = Notification.Name("prepit.inventory.addItem")
+    static let prepItInventoryFocusSearchCommand = Notification.Name("prepit.inventory.focusSearch")
+    static let prepItInventoryDeleteSelectionCommand = Notification.Name("prepit.inventory.deleteSelection")
 }
 
 private enum Formatters {

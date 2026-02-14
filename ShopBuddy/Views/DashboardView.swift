@@ -52,6 +52,10 @@ struct DashboardView: View {
             }
     }
 
+    private var canAccessSchedulingPrep: Bool {
+        coordinator.currentEmployee?.role == .manager
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -89,6 +93,14 @@ struct DashboardView: View {
                     .foregroundColor(DesignSystem.Colors.secondary)
             }
             Spacer()
+            if canAccessSchedulingPrep {
+                Button {
+                    coordinator.requestedTab = .schedule
+                } label: {
+                    Label("Scheduling Prep", systemImage: "calendar.badge.clock")
+                }
+                .buttonStyle(.borderedProminent)
+            }
         }
     }
 
