@@ -21,6 +21,7 @@ final class ScheduleBoardViewModel: ObservableObject {
     @Published var originalOptionShifts: [ScheduleDraftShift] = []
     @Published var options: [ScheduleDraftOption] = []
     @Published var selectedOption: ScheduleDraftOption?
+    @Published var selectedShiftID: UUID?
     @Published private(set) var previewShifts: [UUID: ScheduleDraftShift] = [:]
 
     @Published var coverageEvaluation: CoverageEvaluationResult = .empty
@@ -45,6 +46,9 @@ final class ScheduleBoardViewModel: ObservableObject {
 
     private var interactions: [UUID: ShiftInteraction] = [:]
     private let minimumShiftDurationMinutes = 30
+    private let maxUndoDepth = 80
+    private var copiedShiftTemplate: ScheduleDraftShift?
+    private var undoStack: [[ScheduleDraftShift]] = []
 
     init(
         weekStartDate: Date = Date(),
@@ -129,6 +133,23 @@ final class ScheduleBoardViewModel: ObservableObject {
         draftShifts.map { previewShifts[$0.id] ?? $0 }
     }
 
+    var canCopyOrCutSelection: Bool {
+        selectedShift != nil
+    }
+
+    var canPaste: Bool {
+        copiedShiftTemplate != nil
+    }
+
+    var canUndo: Bool {
+        !undoStack.isEmpty
+    }
+
+    private var selectedShift: ScheduleDraftShift? {
+        guard let selectedShiftID else { return nil }
+        return draftShifts.first(where: { $0.id == selectedShiftID })
+    }
+
     func configure(
         employees: [Employee],
         coverageBlocks: [CoverageRequirement],
@@ -170,6 +191,8 @@ final class ScheduleBoardViewModel: ObservableObject {
     func applyOption(_ option: ScheduleDraftOption) {
         previewShifts.removeAll()
         interactions.removeAll()
+        undoStack.removeAll()
+        selectedShiftID = nil
         selectedOption = option
         options = options
         originalOptionShifts = option.shifts
@@ -180,6 +203,8 @@ final class ScheduleBoardViewModel: ObservableObject {
     func replaceDraftShifts(_ shifts: [ScheduleDraftShift], keepAsOriginal: Bool = false) {
         previewShifts.removeAll()
         interactions.removeAll()
+        undoStack.removeAll()
+        selectedShiftID = nil
         draftShifts = shifts.map(sanitizeShift)
         if keepAsOriginal {
             originalOptionShifts = draftShifts
@@ -192,6 +217,8 @@ final class ScheduleBoardViewModel: ObservableObject {
         guard !originalOptionShifts.isEmpty else { return }
         previewShifts.removeAll()
         interactions.removeAll()
+        undoStack.removeAll()
+        selectedShiftID = nil
         draftShifts = originalOptionShifts
         recalculateWarningsAndCoverage()
     }
@@ -230,39 +257,105 @@ final class ScheduleBoardViewModel: ObservableObject {
             max: visibleEndMinutes
         )
 
-        draftShifts.append(
-            ScheduleDraftShift(
-                employeeId: employeeId,
-                dayOfWeek: max(0, min(6, dayOfWeek)),
-                startMinutes: clampedStart,
-                endMinutes: max(clampedStart + minimumShiftDurationMinutes, clampedEnd),
-                colorSeed: employeeId?.uuidString ?? UUID().uuidString
-            )
+        recordUndoSnapshotIfNeeded()
+        let shift = ScheduleDraftShift(
+            employeeId: employeeId,
+            dayOfWeek: max(0, min(6, dayOfWeek)),
+            startMinutes: clampedStart,
+            endMinutes: max(clampedStart + minimumShiftDurationMinutes, clampedEnd),
+            colorSeed: employeeId?.uuidString ?? UUID().uuidString
         )
+        draftShifts.append(shift)
+        selectedShiftID = shift.id
+        recalculateWarningsAndCoverage()
+    }
+
+    func selectShift(_ shiftID: UUID?) {
+        selectedShiftID = shiftID
+    }
+
+    func copySelection() {
+        guard let selectedShift else { return }
+        copiedShiftTemplate = selectedShift
+    }
+
+    func cutSelection() {
+        guard let selectedShift else { return }
+        copiedShiftTemplate = selectedShift
+        deleteShift(selectedShift.id)
+    }
+
+    func pasteCopiedShift() {
+        guard let copiedShiftTemplate else { return }
+
+        let anchorShift = selectedShift ?? copiedShiftTemplate
+        let duration = max(minimumShiftDurationMinutes, copiedShiftTemplate.durationMinutes)
+        let startMinutes = TimeSnapper.snapAndClamp(
+            anchorShift.startMinutes + 15,
+            step: 15,
+            min: visibleStartMinutes,
+            max: max(visibleStartMinutes, visibleEndMinutes - duration)
+        )
+        let pastedShift = ScheduleDraftShift(
+            employeeId: copiedShiftTemplate.employeeId,
+            dayOfWeek: anchorShift.dayOfWeek,
+            startMinutes: startMinutes,
+            endMinutes: min(visibleEndMinutes, startMinutes + duration),
+            colorSeed: copiedShiftTemplate.employeeId?.uuidString ?? copiedShiftTemplate.colorSeed,
+            notes: copiedShiftTemplate.notes
+        )
+
+        recordUndoSnapshotIfNeeded()
+        draftShifts.append(pastedShift)
+        selectedShiftID = pastedShift.id
+        recalculateWarningsAndCoverage()
+    }
+
+    func undoLastChange() {
+        guard let previous = undoStack.popLast() else { return }
+        previewShifts.removeAll()
+        interactions.removeAll()
+        draftShifts = previous
+        if let selectedShiftID, !draftShifts.contains(where: { $0.id == selectedShiftID }) {
+            self.selectedShiftID = nil
+        }
         recalculateWarningsAndCoverage()
     }
 
     func updateShift(_ updated: ScheduleDraftShift) {
         guard let index = draftShifts.firstIndex(where: { $0.id == updated.id }) else { return }
-        draftShifts[index] = sanitizeShift(updated)
+        let sanitized = sanitizeShift(updated)
+        guard draftShifts[index] != sanitized else { return }
+        recordUndoSnapshotIfNeeded()
+        draftShifts[index] = sanitized
+        selectedShiftID = updated.id
         recalculateWarningsAndCoverage()
     }
 
     func deleteShift(_ shiftId: UUID) {
         previewShifts.removeValue(forKey: shiftId)
         interactions.removeValue(forKey: shiftId)
-        draftShifts.removeAll { $0.id == shiftId }
+        guard let index = draftShifts.firstIndex(where: { $0.id == shiftId }) else { return }
+        recordUndoSnapshotIfNeeded()
+        draftShifts.remove(at: index)
+        if selectedShiftID == shiftId {
+            selectedShiftID = nil
+        }
         recalculateWarningsAndCoverage()
     }
 
     func reassignShift(_ shiftId: UUID, employeeId: UUID) {
         guard let index = draftShifts.firstIndex(where: { $0.id == shiftId }) else { return }
+        guard draftShifts[index].employeeId != employeeId else { return }
+        recordUndoSnapshotIfNeeded()
         draftShifts[index].employeeId = employeeId
         draftShifts[index].colorSeed = employeeId.uuidString
+        selectedShiftID = shiftId
         recalculateWarningsAndCoverage()
     }
 
     func beginDrag(for shiftId: UUID) {
+        selectedShiftID = shiftId
         beginInteraction(for: shiftId, mode: .move)
     }
 
@@ -358,6 +451,9 @@ final class ScheduleBoardViewModel: ObservableObject {
     }
 
     func shiftBorderColor(_ shift: ScheduleDraftShift) -> Color {
+        if shift.id == selectedShiftID {
+            return DesignSystem.Colors.accent
+        }
         let warnings = warningsByShiftId[shift.id] ?? []
         if warnings.contains(where: { $0.severity == .critical }) { return DesignSystem.Colors.error }
         if warnings.contains(where: { $0.severity == .warning }) { return DesignSystem.Colors.warning }
@@ -458,6 +554,16 @@ final class ScheduleBoardViewModel: ObservableObject {
         previewShifts[shiftId] = shift
     }
 
+    private func recordUndoSnapshotIfNeeded() {
+        if undoStack.last == draftShifts {
+            return
+        }
+        undoStack.append(draftShifts)
+        if undoStack.count > maxUndoDepth {
+            undoStack.removeFirst(undoStack.count - maxUndoDepth)
+        }
+    }
+
     private func interaction(for shiftId: UUID, mode: ShiftInteractionMode) -> ShiftInteraction? {
         if let existing = interactions[shiftId], existing.mode == mode {
             return existing
@@ -474,7 +580,11 @@ final class ScheduleBoardViewModel: ObservableObject {
 
         guard let preview = previewShifts[shiftId] else { return }
         guard let index = draftShifts.firstIndex(where: { $0.id == shiftId }) else { return }
-        draftShifts[index] = sanitizeShift(preview)
+        let sanitized = sanitizeShift(preview)
+        guard draftShifts[index] != sanitized else { return }
+        recordUndoSnapshotIfNeeded()
+        draftShifts[index] = sanitized
+        selectedShiftID = shiftId
         recalculateWarningsAndCoverage()
     }
 

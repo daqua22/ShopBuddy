@@ -157,6 +157,9 @@ struct ScheduleBoardView: View {
         }
         .padding(DesignSystem.Spacing.grid_1)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topLeading) {
+            scheduleKeyboardShortcuts
+        }
     }
 
     private var employeePublishedView: some View {
@@ -361,6 +364,35 @@ struct ScheduleBoardView: View {
         } catch {
             publishErrorMessage = error.localizedDescription
             showingPublishError = true
+        }
+    }
+
+    @ViewBuilder
+    private var scheduleKeyboardShortcuts: some View {
+        if canManageSchedule {
+            VStack(spacing: 0) {
+                Button("Copy Shift", action: viewModel.copySelection)
+                    .keyboardShortcut("c", modifiers: [.command])
+                    .disabled(!viewModel.canCopyOrCutSelection)
+
+                Button("Paste Shift", action: viewModel.pasteCopiedShift)
+                    .keyboardShortcut("v", modifiers: [.command])
+                    .disabled(!viewModel.canPaste)
+
+                Button("Cut Shift", action: viewModel.cutSelection)
+                    .keyboardShortcut("x", modifiers: [.command])
+                    .disabled(!viewModel.canCopyOrCutSelection)
+
+                Button("Undo Schedule Change", action: viewModel.undoLastChange)
+                    .keyboardShortcut("z", modifiers: [.command])
+                    .disabled(!viewModel.canUndo)
+            }
+            .labelsHidden()
+            .buttonStyle(.plain)
+            .opacity(0.001)
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
     }
 }

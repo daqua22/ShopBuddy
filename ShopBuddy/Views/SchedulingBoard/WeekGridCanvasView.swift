@@ -203,9 +203,11 @@ struct WeekGridCanvasView: View {
                     borderColor: viewModel.shiftBorderColor(layout.shift),
                     showWarningBadge: (viewModel.warningsByShiftId[layout.shift.id] ?? []).isEmpty == false
                 ) {
+                    viewModel.selectShift(layout.shift.id)
                     editingShift = layout.shift
                 } onMoveStart: {
                     guard canEdit else { return }
+                    viewModel.selectShift(layout.shift.id)
                     viewModel.beginDrag(for: layout.shift.id)
                 } onMoveChanged: { translation in
                     guard canEdit else { return }
@@ -215,12 +217,14 @@ struct WeekGridCanvasView: View {
                     viewModel.endDrag(for: layout.shift.id)
                 } onResizeTopChanged: { delta in
                     guard canEdit else { return }
+                    viewModel.selectShift(layout.shift.id)
                     viewModel.resizeShiftStart(layout.shift.id, deltaY: delta)
                 } onResizeTopEnd: {
                     guard canEdit else { return }
                     viewModel.endResize(for: layout.shift.id)
                 } onResizeBottomChanged: { delta in
                     guard canEdit else { return }
+                    viewModel.selectShift(layout.shift.id)
                     viewModel.resizeShiftEnd(layout.shift.id, deltaY: delta)
                 } onResizeBottomEnd: {
                     guard canEdit else { return }
@@ -228,9 +232,11 @@ struct WeekGridCanvasView: View {
                 }
                 .contextMenu {
                     Button("Edit Shift", systemImage: "pencil") {
+                        viewModel.selectShift(layout.shift.id)
                         editingShift = layout.shift
                     }
                     Button("Delete Shift", systemImage: "trash", role: .destructive) {
+                        viewModel.selectShift(layout.shift.id)
                         viewModel.deleteShift(layout.shift.id)
                     }
                 }
